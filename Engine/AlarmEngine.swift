@@ -81,9 +81,11 @@ public final class AlarmEngine: ObservableObject {
     @discardableResult
     public func startTimer(duration: TimeInterval,
                            autoDismiss: AutoDismiss = .fiveMinutes,
-                           label: String = "Timer") async -> ChymeTimer? {
+                           label: String = "Timer",
+                           soundName: String = ChymeSound.default.name) async -> ChymeTimer? {
         guard await ensureAuthorized() else { return nil }
-        let timer = ChymeTimer(label: label, duration: duration, autoDismiss: autoDismiss)
+        let timer = ChymeTimer(label: label, duration: duration,
+                               autoDismiss: autoDismiss, soundName: soundName)
         timers.append(timer)
         store.save(timers: timers)
 

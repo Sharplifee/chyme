@@ -82,14 +82,22 @@ struct AlarmEditor: View {
 
                 TextField("Label", text: $alarm.label)
 
+                NavigationLink {
+                    SoundPickerView(selection: $alarm.soundName)
+                } label: {
+                    HStack { Text("Sound"); Spacer()
+                        Text(alarm.soundName).foregroundStyle(.secondary) }
+                }
+
                 Toggle("Snooze", isOn: $alarm.snoozeEnabled)
 
-                Section("Stop ringing after") {
-                    Picker("Auto-dismiss", selection: $alarm.autoDismiss) {
-                        ForEach(AutoDismiss.presets, id: \.self) { Text($0.label).tag($0) }
+                Section {
+                    NavigationLink {
+                        AutoDismissPickerView(selection: $alarm.autoDismiss)
+                    } label: {
+                        HStack { Text("Stop ringing after"); Spacer()
+                            Text(alarm.autoDismiss.label).foregroundStyle(.orange) }
                     }
-                    .pickerStyle(.inline)
-                    .labelsHidden()
                 }
             }
             .navigationTitle("Alarm")

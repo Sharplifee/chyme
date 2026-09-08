@@ -5,6 +5,9 @@ import Foundation
 public struct AutoDismiss: Codable, Hashable, Sendable {
     public var seconds: Int
 
+    public static let tenSeconds = AutoDismiss(seconds: 10)
+    public static let twentySeconds = AutoDismiss(seconds: 20)
+    public static let thirtySeconds = AutoDismiss(seconds: 30)
     public static let oneMinute = AutoDismiss(seconds: 60)
     public static let twoMinutes = AutoDismiss(seconds: 120)
     public static let fiveMinutes = AutoDismiss(seconds: 300)
@@ -25,7 +28,8 @@ public struct AutoDismiss: Codable, Hashable, Sendable {
     }
 
     public static let presets: [AutoDismiss] = [
-        .init(seconds: 30), .oneMinute, .twoMinutes, .fiveMinutes, .tenMinutes, .never
+        .tenSeconds, .twentySeconds, .thirtySeconds,
+        .oneMinute, .twoMinutes, .fiveMinutes, .tenMinutes, .never
     ]
 }
 
@@ -102,4 +106,21 @@ public enum CrownDurations {
         if h > 0 { return "\(h)h" }
         return "\(m) min"
     }
+}
+
+
+/// Alert sounds offered for alarms, timers and the stopwatch alert.
+public struct ChymeSound: Codable, Hashable, Identifiable, Sendable {
+    public var name: String
+    public var id: String { name }
+    public init(_ name: String) { self.name = name }
+
+    public static let all: [ChymeSound] = [
+        "Radial", "Ripples", "Sencha", "Signal", "Silk", "Slow Rise",
+        "Stargaze", "Summit", "Twinkle", "Uplift", "Waves",
+        "Beacon", "Bulletin", "By The Seaside", "Chimes", "Circuit",
+        "Constellation", "Cosmic", "Crystals", "Hillside", "Illuminate"
+    ].map(ChymeSound.init)
+
+    public static let `default` = ChymeSound("Radial")
 }
