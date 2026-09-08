@@ -11,7 +11,9 @@ struct StopwatchView: View {
     // Preset start value — the stopwatch counts up from here.
     @State private var offset: TimeInterval = 0
     @State private var showPreset = false
-    @State private var pHours = 0, pMinutes = 0, pSeconds = 0
+    @State private var pHours = 0
+    @State private var pMinutes = 0
+    @State private var pSeconds = 0
 
     // Stopwatch alert: ring when the watch reaches a target, and stop itself
     // after its own auto-dismiss, exactly like alarms and timers.
