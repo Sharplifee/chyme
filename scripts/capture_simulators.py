@@ -1,0 +1,24 @@
+"""Build and launch the real SwiftUI app on iPhone and Watch; retain QA screenshots."""
+import json, subprocess, pathlib, time
+out=pathlib.Path('qa-screenshots'); out.mkdir(exist_ok=True)
+def run(*args): return subprocess.check_output(args, text=True).strip()
+devices=json.loads(run('xcrun','simctl','list','devices','available','--json'))['devices']
+for platform, needle, target, bundle in [('iOS','iPhone','Chyme','com.connor.chyme'),('watchOS','Apple Watch','ChymeWatch','com.connor.chyme.watchkitapp')]:
+    candidates=[d for runtime,ds in devices.items() if platform in runtime for d in ds if needle in d['name']]
+    if not candidates: raise RuntimeError('No '+platform+' simulator')
+    d=candidates[0]; udid=d['udid']
+    if d['state']!='Booted': run('xcrun','simctl','boot',udid)
+    run('xcrun','simctl','bootstatus',udid,'-b')
+    derived='/tmp/chyme-sim-'+platform
+    with open(out/(platform+'-build.log'),'w') as log:
+        subprocess.run(['xcodebuild','-project','Chyme.xcodeproj','-scheme',target,'-destination','id='+udid,'-derivedDataPath',derived,'CODE_SIGNING_ALLOWED=NO','build'],stdout=log,stderr=subprocess.STDOUT,check=True)
+    suffix='Debug-iphonesimulator' if platform=='iOS' else 'Debug-watchsimulator'
+    app=pathlib.Path(derived)/'Build/Products'/suffix/(target+'.app')
+    run('xcrun','simctl','install',udid,str(app))
+    run('xcrun','simctl','launch',udid,bundle)
+    time.sleep(3)
+    for route in ['timers','alarms','stopwatch','settings']:
+        run('xcrun','simctl','openurl',udid,'chymee://'+route)
+        time.sleep(2)
+        run('xcrun','simctl','io',udid,'screenshot',str(out/(platform+'-'+route+'.png')))
+    run('xcrun','simctl','shutdown',udid)

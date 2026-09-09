@@ -3,7 +3,7 @@ name: Chyme TestFlight
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, codex/native-ui-watch]
 
 jobs:
   build:
@@ -22,8 +22,20 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Verify core behavior
+        run: swiftc Shared/ChymeModels.swift Shared/StopwatchState.swift Tests/main.swift -o /tmp/clock-tests && /tmp/clock-tests
+
       - name: Generate project
         run: xcodegen generate
+
+      - name: Capture native simulator screens
+        run: python3 scripts/capture_simulators.py
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Chymee-native-UI-review
+          path: qa-screenshots/
 
       - name: Import signing certificate
         env:
@@ -164,5 +176,6 @@ jobs:
           if grep -qi "No errors uploading\|UPLOAD SUCCEEDED" /tmp/upload.log; then
             echo "Upload confirmed"
           else
-            echo "TestFlight upload not confirmed (expected until the App Store Connect record exists) — ad hoc IPA is still published above"
+            echo "TestFlight upload failed"
+            exit 1
           fi

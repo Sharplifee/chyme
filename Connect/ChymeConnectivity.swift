@@ -1,15 +1,15 @@
 import Foundation
+import Combine
 import WatchConnectivity
 
-/// Watch taps the complication -> message goes to the phone -> phone schedules the
-/// real AlarmKit alarm. The watch never schedules, because AlarmKit has no
-/// watchOS target.
-public final class ChymeConnectivity: NSObject, ObservableObject, WCSessionDelegate, @unchecked Sendable {
+/// Commands are acknowledged, never queued to execute minutes after a tap.
+@MainActor
+public final class ChymeConnectivity: NSObject, ObservableObject, WCSessionDelegate {
     public static let shared = ChymeConnectivity()
-
-    public enum Action: String {
-        case startTimer, stopTimer, toggleAlarm, sync
-    }
+    @Published public private(set) var reachable = false
+    public var receiveSnapshot: ((ClockSnapshot) -> Void)?
+    public var execute: ((ClockCommand) async -> ClockReply)?
+    private var pending: [UUID: CheckedContinuation<ClockReply, Never>] = [:]
 
     private override init() {
         super.init()
@@ -19,60 +19,79 @@ public final class ChymeConnectivity: NSObject, ObservableObject, WCSessionDeleg
         }
     }
 
-    public func startTimer(duration: TimeInterval, autoDismiss: Int) {
-        send([
-            "action": Action.startTimer.rawValue,
-            "duration": duration,
-            "autoDismiss": autoDismiss
-        ])
+    public func publish(_ snapshot: ClockSnapshot) {
+        guard WCSession.isSupported(), WCSession.default.activationState == .activated,
+              let data = try? JSONEncoder().encode(snapshot) else { return }
+        try? WCSession.default.updateApplicationContext(["snapshot": data])
     }
 
-    private func send(_ payload: [String: Any]) {
-        let s = WCSession.default
-        guard s.activationState == .activated else { return }
-        if s.isReachable {
-            s.sendMessage(payload, replyHandler: nil, errorHandler: { _ in
-                try? s.updateApplicationContext(payload)
+    public func request(_ command: ClockCommand) async -> ClockReply {
+        guard WCSession.isSupported(), WCSession.default.activationState == .activated,
+              WCSession.default.isReachable else {
+            return ClockReply(error: "Open Chymee on your nearby iPhone, then try again.")
+        }
+        guard let data = try? JSONEncoder().encode(command) else {
+            return ClockReply(error: "This change could not be sent. Please try again.")
+        }
+        return await withCheckedContinuation { continuation in
+            pending[command.requestID] = continuation
+            WCSession.default.sendMessage(["command": data], replyHandler: { payload in
+                let reply = (payload["reply"] as? Data).flatMap { try? JSONDecoder().decode(ClockReply.self, from: $0) }
+                Task { @MainActor in
+                    self.finish(command.requestID, reply ?? ClockReply(error: "The iPhone response could not be read. Refresh before retrying."))
+                }
+            }, errorHandler: { _ in
+                Task { @MainActor in
+                    self.finish(command.requestID, ClockReply(error: "Connection interrupted. Refresh to check whether your change was saved."))
+                }
             })
-        } else {
-            s.transferUserInfo(payload)
-        }
-    }
-
-    // MARK: - WCSessionDelegate
-
-    public func session(_ session: WCSession,
-                        activationDidCompleteWith state: WCSessionActivationState,
-                        error: Error?) {}
-
-    public func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
-        handle(message)
-    }
-
-    public func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
-        handle(userInfo)
-    }
-
-    private func handle(_ payload: [String: Any]) {
-        #if os(iOS)
-        guard let raw = payload["action"] as? String,
-              let action = Action(rawValue: raw) else { return }
-        switch action {
-        case .startTimer:
-            let duration = payload["duration"] as? TimeInterval ?? 300
-            let dismiss = payload["autoDismiss"] as? Int ?? 300
             Task { @MainActor in
-                await AlarmEngine.shared.startTimer(duration: duration,
-                                                    autoDismiss: AutoDismiss(seconds: dismiss))
+                try? await Task.sleep(for: .seconds(20))
+                self.finish(command.requestID, ClockReply(error: "iPhone has not confirmed this change. Refresh before retrying."))
             }
-        default:
-            break
         }
-        #endif
     }
 
+    private func finish(_ id: UUID, _ reply: ClockReply) {
+        pending.removeValue(forKey: id)?.resume(returning: reply)
+    }
+
+    nonisolated public func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
+        let connected = session.isReachable
+        let snapshot = (session.receivedApplicationContext["snapshot"] as? Data).flatMap { try? JSONDecoder().decode(ClockSnapshot.self, from: $0) }
+        Task { @MainActor in
+            self.reachable = connected
+            if let snapshot { self.receiveSnapshot?(snapshot) }
+        }
+    }
+    nonisolated public func sessionReachabilityDidChange(_ session: WCSession) {
+        let connected = session.isReachable
+        Task { @MainActor in self.reachable = connected }
+    }
+    nonisolated public func session(_ session: WCSession, didReceiveApplicationContext context: [String: Any]) {
+        guard let data = context["snapshot"] as? Data,
+              let snapshot = try? JSONDecoder().decode(ClockSnapshot.self, from: data) else { return }
+        Task { @MainActor in self.receiveSnapshot?(snapshot) }
+    }
+    nonisolated public func session(_ session: WCSession, didReceiveMessage message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
+        guard let data = message["command"] as? Data,
+              let command = try? JSONDecoder().decode(ClockCommand.self, from: data) else {
+            replyHandler([:]); return
+        }
+        let responder = ReplySender(replyHandler)
+        Task { @MainActor in
+            let reply = await self.execute?(command) ?? ClockReply(error: "Open Chymee on iPhone to connect.")
+            responder.send(reply)
+        }
+    }
     #if os(iOS)
-    public func sessionDidBecomeInactive(_ session: WCSession) {}
-    public func sessionDidDeactivate(_ session: WCSession) { WCSession.default.activate() }
+    nonisolated public func sessionDidBecomeInactive(_ session: WCSession) {}
+    nonisolated public func sessionDidDeactivate(_ session: WCSession) { session.activate() }
     #endif
+}
+
+private final class ReplySender: @unchecked Sendable {
+    let handler: ([String: Any]) -> Void
+    init(_ handler: @escaping ([String: Any]) -> Void) { self.handler = handler }
+    func send(_ reply: ClockReply) { handler(["reply": (try? JSONEncoder().encode(reply)) ?? Data()]) }
 }

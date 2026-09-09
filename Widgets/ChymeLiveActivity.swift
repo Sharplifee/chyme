@@ -1,49 +1,59 @@
 import WidgetKit
 import SwiftUI
+import ActivityKit
 #if canImport(AlarmKit)
 import AlarmKit
 
-/// AlarmKit renders its countdown and alerting UI through a Live Activity that
-/// must live in a widget extension. Without this the alarm has nowhere to draw
-/// on the Lock Screen or in the Dynamic Island.
 struct ChymeAlarmLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: AlarmAttributes<ChymeMetadata>.self) { context in
-            HStack {
-                Image(systemName: "alarm.fill")
-                    .foregroundStyle(context.attributes.tintColor)
-                Text(context.attributes.presentation.alert.title)
-                    .font(.headline)
+            HStack(spacing: 16) {
+                Image(systemName: "timer").font(.title).foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(context.attributes.presentation.alert.title).font(.headline)
+                    ClockActivityTime(state: context.state).font(.system(.title, design: .rounded)).monospacedDigit()
+                }
                 Spacer()
-            }
-            .padding()
-            .activityBackgroundTint(.black.opacity(0.6))
+                if let id = context.attributes.metadata?.id {
+                    Button(intent: ChymeStopIntent(alarmID: id)) { Image(systemName: "stop.fill").padding(12) }
+                        .buttonStyle(.bordered).tint(.orange).accessibilityLabel("Stop")
+                }
+            }.padding().activityBackgroundTint(.black).activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             DynamicIsland {
-                DynamicIslandExpandedRegion(.leading) {
-                    Image(systemName: "alarm.fill")
-                        .foregroundStyle(context.attributes.tintColor)
-                }
-                DynamicIslandExpandedRegion(.center) {
-                    Text(context.attributes.presentation.alert.title)
-                        .font(.headline)
+                DynamicIslandExpandedRegion(.leading) { Image(systemName: "timer").foregroundStyle(.orange) }
+                DynamicIslandExpandedRegion(.trailing) { ClockActivityTime(state: context.state).monospacedDigit() }
+                DynamicIslandExpandedRegion(.bottom) {
+                    HStack {
+                        Text(context.attributes.presentation.alert.title).font(.headline)
+                        Spacer()
+                        if let id = context.attributes.metadata?.id {
+                            Button(intent: ChymeStopIntent(alarmID: id)) { Label("Stop", systemImage: "stop.fill") }
+                        }
+                    }
                 }
             } compactLeading: {
-                Image(systemName: "alarm.fill")
+                Image(systemName: "timer").foregroundStyle(.orange)
             } compactTrailing: {
-                Image(systemName: "timer")
+                ClockActivityTime(state: context.state).monospacedDigit().frame(maxWidth: 70)
             } minimal: {
-                Image(systemName: "alarm.fill")
+                Image(systemName: "timer").foregroundStyle(.orange)
             }
-            .keylineTint(context.attributes.tintColor)
+            .keylineTint(.orange).widgetURL(URL(string: "chymee://timers"))
         }
     }
 }
-
-@main
-struct ChymeWidgetBundle: WidgetBundle {
-    var body: some Widget {
-        ChymeAlarmLiveActivity()
+struct ClockActivityTime: View {
+    let state: AlarmPresentationState
+    var body: some View {
+        switch state.mode {
+        case .countdown(let value):
+            Text(timerInterval: value.startDate...value.fireDate, countsDown: true)
+        case .paused: Text("Paused")
+        case .alert: Text("Time’s up")
+        @unknown default: Text("Chymee")
+        }
     }
 }
+@main struct ChymeWidgetBundle: WidgetBundle { var body: some Widget { ChymeAlarmLiveActivity() } }
 #endif

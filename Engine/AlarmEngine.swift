@@ -1,197 +1,171 @@
 import Foundation
+import Combine
 #if canImport(AlarmKit)
 import AlarmKit
 #endif
 
-/// Single source of truth for scheduling. Runs on the phone (and Catalyst);
-/// the watch drives it over WatchConnectivity rather than scheduling itself,
-/// because AlarmKit has no watchOS target.
 @MainActor
 public final class AlarmEngine: ObservableObject {
-
     public static let shared = AlarmEngine()
-
-    @Published public private(set) var alarms: [ChymeAlarm] = []
-    @Published public private(set) var timers: [ChymeTimer] = []
-
-    private var autoDismissWork: [UUID: Task<Void, Never>] = [:]
+    @Published public private(set) var alarms: [ChymeAlarm]
+    @Published public private(set) var timers: [ChymeTimer]
     private let store = ChymeStore()
+    private var observation: Task<Void, Never>?
+    private var replies: [UUID: ClockReply] = [:]
+    private var processing: Set<UUID> = []
+    private var knownStates: [UUID: String] = [:]
 
     private init() {
         alarms = store.loadAlarms()
         timers = store.loadTimers()
     }
+    public var snapshot: ClockSnapshot { ClockSnapshot(alarms: alarms, timers: timers) }
+    public var onChange: ((ClockSnapshot) -> Void)?
 
-    // MARK: - Authorization
-
-    public func ensureAuthorized() async -> Bool {
+    public func start() {
+        guard observation == nil else { return }
         #if canImport(AlarmKit)
-        switch AlarmManager.shared.authorizationState {
-        case .authorized:
-            return true
-        case .notDetermined:
-            do {
-                let state = try await AlarmManager.shared.requestAuthorization()
-                return state == .authorized
-            } catch {
-                return false
-            }
-        default:
-            return false
+        AutoDismissWatcher.shared.start { id in
+            let store = ChymeStore()
+            return store.loadAlarms().first { $0.id == id }?.autoDismiss
+                ?? store.loadTimers().first { $0.id == id }?.autoDismiss
         }
-        #else
-        return false
+        observation = Task {
+            for await current in AlarmManager.shared.alarmUpdates { reconcile(current) }
+        }
         #endif
+        publish()
     }
-
-    // MARK: - Alarms
-
-    public func upsert(_ alarm: ChymeAlarm) async {
-        if let i = alarms.firstIndex(where: { $0.id == alarm.id }) {
-            alarms[i] = alarm
-        } else {
-            alarms.append(alarm)
-        }
-        alarms.sort { $0.minuteOfDay < $1.minuteOfDay }
-        store.save(alarms: alarms)
-        await reschedule(alarm)
+    private func publish() {
+        store.save(alarms: alarms); store.save(timers: timers)
+        onChange?(snapshot)
+        ChymeConnectivity.shared.publish(snapshot)
     }
-
-    public func delete(alarmID: UUID) async {
-        alarms.removeAll { $0.id == alarmID }
-        store.save(alarms: alarms)
-        cancelAutoDismiss(for: alarmID)
-        await cancelScheduled(id: alarmID)
-    }
-
-    public func setEnabled(_ enabled: Bool, alarmID: UUID) async {
-        guard let i = alarms.firstIndex(where: { $0.id == alarmID }) else { return }
-        alarms[i].isEnabled = enabled
-        store.save(alarms: alarms)
-        if enabled {
-            await reschedule(alarms[i])
-        } else {
-            await cancelScheduled(id: alarmID)
-        }
-    }
-
-    // MARK: - Timers
-
-    /// The complication path: one call, already-known duration, starts immediately.
-    @discardableResult
-    public func startTimer(duration: TimeInterval,
-                           autoDismiss: AutoDismiss = .fiveMinutes,
-                           label: String = "Timer",
-                           soundName: String = ChymeSound.default.name) async -> ChymeTimer? {
-        guard await ensureAuthorized() else { return nil }
-        let timer = ChymeTimer(label: label, duration: duration,
-                               autoDismiss: autoDismiss, soundName: soundName)
-        timers.append(timer)
-        store.save(timers: timers)
-
+    public func refresh() {
         #if canImport(AlarmKit)
+        if let current = (try? AlarmManager.shared.alarms) { reconcile(current) }
+        #endif
+        publish()
+    }
+    public func perform(_ command: ClockCommand) async -> ClockReply {
+        if let reply = replies[command.requestID] { return reply }
+        guard processing.insert(command.requestID).inserted else {
+            return ClockReply(error: "This change is already being processed. Refresh in a moment.")
+        }
+        defer { processing.remove(command.requestID) }
         do {
-            try await scheduleCountdown(timer)
-        } catch {
-            timers.removeAll { $0.id == timer.id }
-            store.save(timers: timers)
-            return nil
-        }
-        #endif
-
-        armAutoDismiss(id: timer.id, firesIn: duration, policy: autoDismiss)
-        return timer
+            switch command.action {
+            case "sync": refresh()
+            case "saveAlarm":
+                guard var alarm = command.alarm, (0..<1440).contains(alarm.minuteOfDay),
+                      alarm.repeatDays.allSatisfy({ (1...7).contains($0) }) else { throw ClockError.invalid }
+                alarm.soundName = ChymeSound.resolved(alarm.soundName)
+                if alarm.isEnabled {
+                    try await authorize()
+                    #if canImport(AlarmKit)
+                    try await AlarmKitBridge.scheduleFixed(id: alarm.id, hour: alarm.hour, minute: alarm.minute,
+                        weekdays: alarm.repeatDays, label: alarm.label, sound: alarm.soundName, allowSnooze: alarm.snoozeEnabled)
+                    #endif
+                } else { try cancel(alarm.id) }
+                alarms.removeAll { $0.id == alarm.id }; alarms.append(alarm)
+                alarms.sort { $0.minuteOfDay < $1.minuteOfDay }
+            case "deleteAlarm":
+                guard let id = command.id else { throw ClockError.invalid }
+                try cancel(id); alarms.removeAll { $0.id == id }
+            case "startTimer":
+                guard var timer = command.timer, timer.duration.isFinite, timer.duration >= 1,
+                      timer.duration <= 86399 else { throw ClockError.invalid }
+                try await authorize()
+                timer.soundName = ChymeSound.resolved(timer.soundName)
+                timer.endsAt = .now.addingTimeInterval(timer.duration); timer.pausedRemaining = nil
+                #if canImport(AlarmKit)
+                try await AlarmKitBridge.scheduleCountdown(id: timer.id, duration: timer.duration, label: timer.label, sound: timer.soundName)
+                #endif
+                timers.removeAll { $0.id == timer.id }; timers.append(timer)
+            case "cancelTimer":
+                guard let id = command.id else { throw ClockError.invalid }
+                try cancel(id); timers.removeAll { $0.id == id }
+            case "pauseTimer", "resumeTimer":
+                guard let id = command.id, let index = timers.firstIndex(where: { $0.id == id }) else { throw ClockError.invalid }
+                #if canImport(AlarmKit)
+                if command.action == "pauseTimer" {
+                    try AlarmManager.shared.pause(id: id)
+                    timers[index].pausedRemaining = timers[index].remaining()
+                    timers[index].endsAt = nil
+                } else {
+                    let remaining = timers[index].remaining()
+                    try AlarmManager.shared.resume(id: id)
+                    timers[index].endsAt = .now.addingTimeInterval(remaining)
+                    timers[index].pausedRemaining = nil
+                }
+                #endif
+            default: throw ClockError.invalid
+            }
+            publish()
+            let reply = ClockReply(snapshot: snapshot)
+            if replies.count > 100 { replies.removeAll() }
+            replies[command.requestID] = reply
+            return reply
+        } catch { return ClockReply(snapshot: snapshot, error: error.localizedDescription) }
     }
-
-    public func cancelTimer(_ id: UUID) async {
-        timers.removeAll { $0.id == id }
-        store.save(timers: timers)
-        cancelAutoDismiss(for: id)
-        await cancelScheduled(id: id)
-    }
-
-    // MARK: - Auto-dismiss
-
-    /// Arms the stop that makes this app worth building: once the alarm starts
-    /// sounding, wait `policy.seconds` and then stop it, whether or not anyone
-    /// is there to touch it.
-    private func armAutoDismiss(id: UUID, firesIn: TimeInterval, policy: AutoDismiss) {
-        cancelAutoDismiss(for: id)
-        guard policy.isEnabled else { return }
-        let delay = firesIn + TimeInterval(policy.seconds)
-        autoDismissWork[id] = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(delay))
-            guard !Task.isCancelled else { return }
-            await self?.cancelScheduled(id: id)
-            await MainActor.run { self?.autoDismissWork[id] = nil }
-        }
-    }
-
-    private func cancelAutoDismiss(for id: UUID) {
-        autoDismissWork[id]?.cancel()
-        autoDismissWork[id] = nil
-    }
-
-    // MARK: - AlarmKit bridge
-
-    private func reschedule(_ alarm: ChymeAlarm) async {
-        await cancelScheduled(id: alarm.id)
-        guard alarm.isEnabled, await ensureAuthorized() else { return }
+    private func authorize() async throws {
         #if canImport(AlarmKit)
-        try? await scheduleSchedule(alarm)
+        if AlarmManager.shared.authorizationState == .notDetermined {
+            _ = try await AlarmManager.shared.requestAuthorization()
+        }
+        guard AlarmManager.shared.authorizationState == .authorized else { throw ClockError.permission }
+        #else
+        throw ClockError.unavailable
         #endif
-        if let next = nextFireInterval(for: alarm) {
-            armAutoDismiss(id: alarm.id, firesIn: next, policy: alarm.autoDismiss)
-        }
     }
-
-    public func nextFireInterval(for alarm: ChymeAlarm,
-                                 from now: Date = Date(),
-                                 calendar: Calendar = .current) -> TimeInterval? {
-        var comps = DateComponents()
-        comps.hour = alarm.hour
-        comps.minute = alarm.minute
-        comps.second = 0
-        if alarm.repeatDays.isEmpty {
-            guard let next = calendar.nextDate(after: now,
-                                               matching: comps,
-                                               matchingPolicy: .nextTime) else { return nil }
-            return next.timeIntervalSince(now)
+    private func cancel(_ id: UUID) throws {
+        #if canImport(AlarmKit)
+        let active = try AlarmManager.shared.alarms
+        if active.contains(where: { $0.id == id }) { try AlarmManager.shared.cancel(id: id) }
+        #endif
+    }
+    #if canImport(AlarmKit)
+    private func reconcile(_ current: [Alarm]) {
+        let ids = Set(current.map(\.id))
+        timers.removeAll { !ids.contains($0.id) }
+        for index in alarms.indices where alarms[index].isEnabled && !ids.contains(alarms[index].id) {
+            alarms[index].isEnabled = false
         }
-        var best: Date?
-        for weekday in alarm.repeatDays {
-            var c = comps
-            c.weekday = weekday
-            if let d = calendar.nextDate(after: now, matching: c, matchingPolicy: .nextTime) {
-                if best == nil || d < best! { best = d }
+        for alarm in current {
+            guard let index = timers.firstIndex(where: { $0.id == alarm.id }) else { continue }
+            let previous = knownStates[alarm.id]
+            switch alarm.state {
+            case .paused:
+                if !timers[index].isPaused {
+                    timers[index].pausedRemaining = timers[index].remaining(); timers[index].endsAt = nil
+                }
+                knownStates[alarm.id] = "paused"
+            case .countdown:
+                if timers[index].isPaused {
+                    timers[index].endsAt = .now.addingTimeInterval(timers[index].remaining())
+                    timers[index].pausedRemaining = nil
+                } else if previous == "alerting" {
+                    timers[index].endsAt = .now.addingTimeInterval(300)
+                }
+                knownStates[alarm.id] = "countdown"
+            case .alerting:
+                timers[index].endsAt = .now; timers[index].pausedRemaining = nil
+                knownStates[alarm.id] = "alerting"
+            default: break
             }
         }
-        return best.map { $0.timeIntervalSince(now) }
-    }
-
-    private func cancelScheduled(id: UUID) async {
-        #if canImport(AlarmKit)
-        try? AlarmManager.shared.cancel(id: id)
-        #endif
-    }
-
-    #if canImport(AlarmKit)
-    private func scheduleCountdown(_ timer: ChymeTimer) async throws {
-        // Countdown-style AlarmKit alarm: fires `duration` from now.
-        try await AlarmKitBridge.scheduleCountdown(id: timer.id,
-                                                   duration: timer.duration,
-                                                   label: timer.label,
-                                                   sound: timer.soundName)
-    }
-
-    private func scheduleSchedule(_ alarm: ChymeAlarm) async throws {
-        try await AlarmKitBridge.scheduleFixed(id: alarm.id,
-                                               hour: alarm.hour,
-                                               minute: alarm.minute,
-                                               weekdays: alarm.repeatDays,
-                                               label: alarm.label,
-                                               sound: alarm.soundName,
-                                               allowSnooze: alarm.snoozeEnabled)
+        publish()
     }
     #endif
+}
+
+enum ClockError: LocalizedError {
+    case permission, unavailable, invalid
+    var errorDescription: String? {
+        switch self {
+        case .permission: return "Allow alarms for Chymee in iPhone Settings, then try again. Nothing was scheduled."
+        case .unavailable: return "System alarms require a supported iPhone or iPad."
+        case .invalid: return "This item is no longer available, or its time is invalid. Refresh and try again."
+        }
+    }
 }
