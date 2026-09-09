@@ -22,15 +22,18 @@ targets:
     type: application
     platform: iOS
     supportedDestinations: [iOS, macCatalyst]
-    sources: [App, Shared, Engine, Connect, Alarm, Assets]
+    sources: [App, UI, Shared, Engine, Connect, Alarm, Assets, Sounds]
     info:
       path: Config/Chyme-Info.plist
       properties:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: Chymee
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
-        NSAlarmKitUsageDescription: "Chyme schedules your alarms and timers so they ring reliably and stop on their own."
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: [chymee]
+        NSAlarmKitUsageDescription: "Chymee schedules alarms and timers that can alert on your Lock Screen and paired Apple Watch."
         NSSupportsLiveActivities: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -65,6 +68,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: Chymee
+        ITSAppUsesNonExemptEncryption: false
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
@@ -76,14 +80,17 @@ targets:
   ChymeWatch:
     type: application
     platform: watchOS
-    sources: [Watch, Shared, Connect, WatchAssets]
+    sources: [Watch, UI, Shared, Connect, WatchAssets, Sounds]
     info:
       path: Config/ChymeWatch-Info.plist
       properties:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: Chymee
+        ITSAppUsesNonExemptEncryption: false
         WKApplication: true
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: [chymee]
         WKCompanionAppBundleIdentifier: com.connor.chyme
         WKRunsIndependentlyOfCompanionApp: true
     dependencies:
@@ -105,6 +112,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: Chymee
+        ITSAppUsesNonExemptEncryption: false
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:

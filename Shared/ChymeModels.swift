@@ -1,7 +1,6 @@
 import Foundation
 
-/// How long a ringing alarm or timer is allowed to sound before it stops itself.
-/// This is the whole point of Chyme: nothing rings forever.
+/// Requested alert duration. Automatic stopping requires the iPhone process to remain active.
 public struct AutoDismiss: Codable, Hashable, Sendable {
     public var seconds: Int
 
@@ -50,7 +49,7 @@ public struct ChymeAlarm: Codable, Identifiable, Hashable, Sendable {
                 minuteOfDay: Int,
                 repeatDays: Set<Int> = [],
                 isEnabled: Bool = true,
-                soundName: String = "Radial",
+                soundName: String = "System",
                 snoozeEnabled: Bool = true,
                 autoDismiss: AutoDismiss = .fiveMinutes) {
         self.id = id
@@ -73,15 +72,19 @@ public struct ChymeTimer: Codable, Identifiable, Hashable, Sendable {
     public var duration: TimeInterval
     public var autoDismiss: AutoDismiss
     public var soundName: String
+    public var endsAt: Date?
+    public var pausedRemaining: TimeInterval?
 
     public init(id: UUID = UUID(),
                 label: String = "Timer",
                 duration: TimeInterval,
                 autoDismiss: AutoDismiss = .fiveMinutes,
-                soundName: String = "Radial") {
+                soundName: String = "System") {
         self.id = id
         self.label = label
         self.duration = duration
+        self.endsAt = Date().addingTimeInterval(duration)
+        self.pausedRemaining = nil
         self.autoDismiss = autoDismiss
         self.soundName = soundName
     }
@@ -115,12 +118,56 @@ public struct ChymeSound: Codable, Hashable, Identifiable, Sendable {
     public var id: String { name }
     public init(_ name: String) { self.name = name }
 
-    public static let all: [ChymeSound] = [
-        "Radial", "Ripples", "Sencha", "Signal", "Silk", "Slow Rise",
-        "Stargaze", "Summit", "Twinkle", "Uplift", "Waves",
-        "Beacon", "Bulletin", "By The Seaside", "Chimes", "Circuit",
-        "Constellation", "Cosmic", "Crystals", "Hillside", "Illuminate"
-    ].map(ChymeSound.init)
+    public static let all = [ChymeSound("System"), ChymeSound("Bell"), ChymeSound("Pulse"), ChymeSound("Dawn")]
+    public static let `default` = ChymeSound("System")
+    public static func resolved(_ name: String) -> String {
+        all.contains(where: { $0.name == name }) ? name : "System"
+    }
+}
 
-    public static let `default` = ChymeSound("Radial")
+extension ChymeTimer {
+    public func remaining(at date: Date = .now) -> TimeInterval {
+        max(0, pausedRemaining ?? endsAt?.timeIntervalSince(date) ?? 0)
+    }
+    public var isPaused: Bool { pausedRemaining != nil }
+}
+
+public enum ClockText {
+    public static func duration(_ seconds: TimeInterval, hundredths: Bool = false) -> String {
+        let value = max(0, seconds), total = Int(value)
+        let base = total >= 3600
+            ? String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)
+            : String(format: "%02d:%02d", total / 60, total % 60)
+        return hundredths ? base + String(format: ".%02d", Int(value * 100) % 100) : base
+    }
+    public static func time(_ minutes: Int) -> String {
+        let date = Calendar.current.startOfDay(for: .now).addingTimeInterval(Double(minutes * 60))
+        return date.formatted(date: .omitted, time: .shortened)
+    }
+    public static func repeatLabel(_ days: Set<Int>) -> String {
+        if days.isEmpty { return "Never" }
+        if days.count == 7 { return "Every day" }
+        if days == Set(2...6) { return "Weekdays" }
+        if days == [1, 7] { return "Weekends" }
+        return days.sorted().map { Calendar.current.shortWeekdaySymbols[$0 - 1] }.joined(separator: ", ")
+    }
+}
+
+public struct ClockSnapshot: Codable, Sendable {
+    public var alarms: [ChymeAlarm]
+    public var timers: [ChymeTimer]
+    public var date: Date = .now
+}
+
+public struct ClockCommand: Codable, Sendable {
+    public var requestID = UUID()
+    public var action: String
+    public var id: UUID? = nil
+    public var alarm: ChymeAlarm? = nil
+    public var timer: ChymeTimer? = nil
+}
+
+public struct ClockReply: Codable, Sendable {
+    public var snapshot: ClockSnapshot?
+    public var error: String?
 }

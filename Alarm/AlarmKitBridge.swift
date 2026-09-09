@@ -5,7 +5,8 @@ import AppIntents
 import AlarmKit
 
 struct ChymeMetadata: AlarmMetadata {
-    init() {}
+    var id: UUID?
+    init(id: UUID? = nil) { self.id = id }
 }
 
 /// Stop button on the alerting UI.
@@ -18,7 +19,7 @@ struct ChymeStopIntent: LiveActivityIntent {
 
     func perform() async throws -> some IntentResult {
         if let id = UUID(uuidString: alarmID) {
-            try? AlarmManager.shared.stop(id: id)
+            try AlarmManager.shared.stop(id: id)
         }
         return .result()
     }
@@ -34,19 +35,52 @@ struct ChymeSnoozeIntent: LiveActivityIntent {
 
     func perform() async throws -> some IntentResult {
         if let id = UUID(uuidString: alarmID) {
-            try? AlarmManager.shared.countdown(id: id)
+            try AlarmManager.shared.countdown(id: id)
         }
+        return .result()
+    }
+}
+
+struct ChymePauseIntent: LiveActivityIntent {
+    static let title: LocalizedStringResource = "Pause Timer"
+    @Parameter(title: "Alarm ID") var alarmID: String
+    init() {}
+    init(alarmID: UUID) { self.alarmID = alarmID.uuidString }
+    func perform() async throws -> some IntentResult {
+        if let id = UUID(uuidString: alarmID) { try AlarmManager.shared.pause(id: id) }
+        return .result()
+    }
+}
+
+struct ChymeResumeIntent: LiveActivityIntent {
+    static let title: LocalizedStringResource = "Resume Timer"
+    @Parameter(title: "Alarm ID") var alarmID: String
+    init() {}
+    init(alarmID: UUID) { self.alarmID = alarmID.uuidString }
+    func perform() async throws -> some IntentResult {
+        if let id = UUID(uuidString: alarmID) { try AlarmManager.shared.resume(id: id) }
+        return .result()
+    }
+}
+
+struct ChymeCancelIntent: LiveActivityIntent {
+    static let title: LocalizedStringResource = "Cancel Timer"
+    @Parameter(title: "Alarm ID") var alarmID: String
+    init() {}
+    init(alarmID: UUID) { self.alarmID = alarmID.uuidString }
+    func perform() async throws -> some IntentResult {
+        if let id = UUID(uuidString: alarmID) { try AlarmManager.shared.cancel(id: id) }
         return .result()
     }
 }
 
 enum AlarmKitBridge {
 
-    private static func attributes(title: String) -> AlarmAttributes<ChymeMetadata> {
+    private static func attributes(id: UUID, title: String, snooze: Bool = true) -> AlarmAttributes<ChymeMetadata> {
         let alert = AlarmPresentation.Alert(
             title: LocalizedStringResource(stringLiteral: title),
             stopButton: AlarmButton(text: "Stop", textColor: .white, systemImageName: "stop.circle"),
-            secondaryButton: AlarmButton(text: "Snooze", textColor: .white, systemImageName: "zzz"),
+            secondaryButton: snooze ? AlarmButton(text: "Snooze", textColor: .white, systemImageName: "zzz") : nil,
             secondaryButtonBehavior: .countdown
         )
         let countdown = AlarmPresentation.Countdown(
@@ -59,7 +93,7 @@ enum AlarmKitBridge {
         )
         return AlarmAttributes(
             presentation: AlarmPresentation(alert: alert, countdown: countdown, paused: paused),
-            metadata: ChymeMetadata(),
+            metadata: ChymeMetadata(id: id),
             tintColor: Color.orange
         )
     }
@@ -72,10 +106,10 @@ enum AlarmKitBridge {
         let config = AlarmManager.AlarmConfiguration(
             countdownDuration: Alarm.CountdownDuration(preAlert: duration, postAlert: 5 * 60),
             schedule: nil,
-            attributes: attributes(title: label),
+            attributes: attributes(id: id, title: label),
             stopIntent: ChymeStopIntent(alarmID: id),
             secondaryIntent: ChymeSnoozeIntent(alarmID: id),
-            sound: .default
+            sound: ChymeSound.resolved(sound) == "System" ? .default : .named(ChymeSound.resolved(sound).lowercased() + ".wav")
         )
         _ = try await AlarmManager.shared.schedule(id: id, configuration: config)
     }
@@ -104,10 +138,10 @@ enum AlarmKitBridge {
                 ? Alarm.CountdownDuration(preAlert: nil, postAlert: 9 * 60)
                 : nil,
             schedule: schedule,
-            attributes: attributes(title: label),
+            attributes: attributes(id: id, title: label, snooze: allowSnooze),
             stopIntent: ChymeStopIntent(alarmID: id),
             secondaryIntent: allowSnooze ? ChymeSnoozeIntent(alarmID: id) : nil,
-            sound: .default
+            sound: ChymeSound.resolved(sound) == "System" ? .default : .named(ChymeSound.resolved(sound).lowercased() + ".wav")
         )
         _ = try await AlarmManager.shared.schedule(id: id, configuration: config)
     }
@@ -163,7 +197,7 @@ final class AutoDismissWatcher {
             }
         }
 
-        for id in alertingSince.keys where !alerting.contains(id) {
+        for id in Array(alertingSince.keys) where !alerting.contains(id) {
             alertingSince[id] = nil
             stoppers[id]?.cancel()
             stoppers[id] = nil
