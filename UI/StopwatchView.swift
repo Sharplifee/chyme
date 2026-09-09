@@ -50,16 +50,14 @@ struct StopwatchView: View {
                     Button("Set Starting Time", systemImage: "dial.medium") { preset = Int(state.preset); showPreset = true }
                         .buttonStyle(.bordered)
                 }
-                DisclosureGroup("Stopwatch Alert") {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Toggle("Alert at a Time", isOn: $alertEnabled)
-                        if alertEnabled {
-                            DurationPicker(seconds: $alertSeconds)
-                            NavigationLink { SoundPickerView(selection: $alertSound) } label: { LabeledContent("Sound", value: alertSound) }
-                            NavigationLink { AutoDismissPickerView(selection: dismissBinding) } label: { LabeledContent("Stop Ringing After", value: alertDismiss.label) }
-                        }
-                    }.padding(.top, 12).disabled(state.running || clock.busy)
-                }.padding().background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 16))
+                #if os(watchOS)
+                NavigationLink("Stopwatch Alert") {
+                    Form { alertSettings }.navigationTitle("Stopwatch Alert")
+                }.buttonStyle(.bordered)
+                #else
+                DisclosureGroup("Stopwatch Alert") { alertSettings.padding(.top, 12) }
+                    .padding().background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 16))
+                #endif
                 VStack(spacing: 0) {
                     ForEach(Array(state.lapDurations.enumerated().reversed()), id: \.offset) { index, duration in
                         HStack {
@@ -85,6 +83,16 @@ struct StopwatchView: View {
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showPreset = false } } }
             }
         }
+    }
+    private var alertSettings: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Toggle("Alert at a Time", isOn: $alertEnabled)
+            if alertEnabled {
+                DurationPicker(seconds: $alertSeconds)
+                NavigationLink { SoundPickerView(selection: $alertSound) } label: { LabeledContent("Sound", value: alertSound) }
+                NavigationLink { AutoDismissPickerView(selection: dismissBinding) } label: { LabeledContent("Stop Ringing After", value: alertDismiss.label) }
+            }
+        }.disabled(state.running || clock.busy)
     }
     private func save() {
         if let data = try? JSONEncoder().encode(state) { UserDefaults.standard.set(data, forKey: "stopwatch.v2") }
