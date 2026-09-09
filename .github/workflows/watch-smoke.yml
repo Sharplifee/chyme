@@ -10,9 +10,12 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
+
       - name: Select newest Xcode
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+
       - run: brew install xcodegen
+
       - run: xcodegen generate
 
       - name: Build watch app for simulator
@@ -23,30 +26,28 @@ jobs:
             -derivedDataPath $RUNNER_TEMP/dd \
             CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -25
 
-      - name: Boot a watch simulator and launch the app
+      - name: Launch on a watch simulator and capture crashes
         run: |
           set -x
-          DEV=$(xcrun simctl list devices available | grep -m1 -oE '[0-9A-F-]{36}.*' || true)
-          xcrun simctl list devicetypes | grep -i "Apple Watch" | tail -3
-          RT=$(xcrun simctl list runtimes | grep -i watchos | tail -1 | grep -oE 'com.apple.CoreSimulator.SimRuntime.watchOS[^ ]*')
-          DT=$(xcrun simctl list devicetypes | grep -i "Apple Watch Series" | tail -1 | grep -oE 'com.apple.CoreSimulator.SimDeviceType.[^)]*')
-          echo "runtime=$RT devicetype=$DT"
-          UDID=$(xcrun simctl create ChymeWatchSim "$DT" "$RT")
-          xcrun simctl boot "$UDID"
+          xcrun simctl list devices available | sed -n '/-- watchOS/,/^-- /p'
+          UDID=$(xcrun simctl list devices available | sed -n '/-- watchOS/,/^-- /p' | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' | head -1)
+          echo "udid=$UDID"
+          test -n "$UDID"
+          xcrun simctl boot "$UDID" || true
           sleep 25
-          APP=$(find $RUNNER_TEMP/dd/Build/Products -name "ChymeWatch.app" -maxdepth 3 | head -1)
+          APP=$(find $RUNNER_TEMP/dd/Build/Products -name 'ChymeWatch.app' -maxdepth 3 | head -1)
           echo "app=$APP"
+          test -n "$APP"
           xcrun simctl install "$UDID" "$APP"
           set +e
           xcrun simctl launch --console-pty "$UDID" com.connor.chyme.watchkitapp > $RUNNER_TEMP/launch.log 2>&1 &
           LP=$!
-          sleep 30
+          sleep 35
           kill $LP 2>/dev/null
           set -e
           echo "===== LAUNCH OUTPUT ====="
           cat $RUNNER_TEMP/launch.log || true
           echo "===== CRASH REPORTS ====="
-          ls -la ~/Library/Logs/DiagnosticReports/ 2>/dev/null || echo "none in user dir"
-          find ~/Library/Logs/CoreSimulator -name "*.ips" -newermt '-10 minutes' 2>/dev/null | head -5 | while read f; do echo "--- $f"; head -60 "$f"; done
-          echo "===== APP STATE ====="
-          xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -i chyme || echo "not running"
+          find ~/Library/Logs/DiagnosticReports -name '*.ips' -newermt '-15 minutes' 2>/dev/null | head -5 | while read f; do echo "--- $f"; head -70 "$f"; done
+          echo "===== STILL RUNNING? ====="
+          xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -i chyme || echo "PROCESS NOT RUNNING"
