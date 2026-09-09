@@ -163,45 +163,4 @@ extension Locale.Weekday {
     }
 }
 
-/// Watches AlarmKit state and stops any alarm that has been alerting longer than
-/// its configured auto-dismiss window. This is the behaviour Apple's Clock does
-/// not give you, and it is the reason this app exists.
-@MainActor
-final class AutoDismissWatcher {
-    static let shared = AutoDismissWatcher()
-    private var task: Task<Void, Never>?
-    private var alertingSince: [UUID: Date] = [:]
-    private var stoppers: [UUID: Task<Void, Never>] = [:]
-
-    func start(policyLookup: @escaping @Sendable (UUID) -> AutoDismiss?) {
-        task?.cancel()
-        task = Task { [weak self] in
-            for await alarms in AlarmManager.shared.alarmUpdates {
-                guard let self else { return }
-                await self.handle(alarms, policyLookup: policyLookup)
-            }
-        }
-    }
-
-    private func handle(_ alarms: [Alarm],
-                        policyLookup: @escaping @Sendable (UUID) -> AutoDismiss?) async {
-        let alerting = Set(alarms.filter { $0.state == .alerting }.map(\.id))
-
-        for id in alerting where alertingSince[id] == nil {
-            alertingSince[id] = Date()
-            guard let policy = policyLookup(id), policy.isEnabled else { continue }
-            stoppers[id] = Task {
-                try? await Task.sleep(for: .seconds(policy.seconds))
-                guard !Task.isCancelled else { return }
-                try? AlarmManager.shared.stop(id: id)
-            }
-        }
-
-        for id in Array(alertingSince.keys) where !alerting.contains(id) {
-            alertingSince[id] = nil
-            stoppers[id]?.cancel()
-            stoppers[id] = nil
-        }
-    }
-}
 #endif

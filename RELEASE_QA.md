@@ -14,7 +14,7 @@ The existing GitHub workflow generates the project, archives and signs the iOS a
 | Countdown recovery | Read and observe system Live Activity state after background controls | Verify pause/resume while Chymee is suspended |
 | Watch complications | Timer duration recommendations and Timer, Alarms, Stopwatch launchers in circular, corner, inline and rectangular families | Launchers do not display live synchronized alarm/timer state |
 | Stopwatch | Persisted timestamps, elapsed time, laps and optional phone-scheduled alert | Stopwatch state is independent per device; stopping remains local if alert cancellation cannot reach iPhone |
-| Timed automatic stopping | In-process observation and delayed stop | Not guaranteed while iOS suspends or terminates Chymee; no unrestricted background execution is claimed |
+| Timed automatic stopping | Persisted observed deadlines, bounded background execution, three stop attempts and local diagnostics | Not guaranteed while iOS suspends or terminates Chymee; no unrestricted background execution is claimed |
 
 ## Physical-device acceptance pass
 
@@ -32,3 +32,5 @@ Use the newly uploaded TestFlight build on an iPhone and its paired Watch, launc
 10. Test timed automatic stopping with the iPhone active, then suspended. The suspended case remains a documented limitation, not an acceptance claim.
 
 References: [AlarmKit overview](https://developer.apple.com/videos/play/wwdc2025/230/), [WatchConnectivity sample](https://developer.apple.com/documentation/watchconnectivity/transferring-data-with-watch-connectivity).
+
+For failed auto-stop tests, Chymee on iPhone → Settings → Alert Diagnostics records observation, deadline, runtime expiry and stop API results. A successful stop API response is recorded as accepted, not as verified audible silence.

@@ -11,6 +11,11 @@ struct SettingsView: View {
                 }
                 NavigationLink { AutoDismissPickerView(selection: $dismiss) } label: { LabeledContent("Stop Ringing After", value: dismiss.label) }
             }
+            #if os(iOS)
+            Section {
+                NavigationLink("Alert Diagnostics") { AlertDiagnosticsView() }
+            }
+            #endif
             Section("Watch Face") {
                 Label("Timer · Alarms · Stopwatch", systemImage: "applewatch")
                 Text("Touch and hold your watch face, tap Edit, then select a complication slot and choose Chymee. Edit the Timer complication to choose its duration. Available shapes depend on your watch face.")
@@ -25,3 +30,19 @@ struct SettingsView: View {
         .onChange(of: dismiss) { _, value in ChymeStore().defaultAutoDismiss = value }
     }
 }
+
+#if os(iOS)
+private struct AlertDiagnosticsView: View {
+    @ObservedObject private var monitor = AutoDismissWatcher.shared
+    private var report: String { monitor.events.joined(separator: "\n") }
+    var body: some View {
+        ScrollView {
+            Text(report.isEmpty ? "No alert events recorded yet." : report)
+                .font(.caption.monospaced()).textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading).padding()
+        }
+        .navigationTitle("Alert Diagnostics")
+        .toolbar { ShareLink(item: report) { Label("Share", systemImage: "square.and.arrow.up") } }
+    }
+}
+#endif

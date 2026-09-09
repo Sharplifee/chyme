@@ -45,6 +45,7 @@ public final class AlarmEngine: ObservableObject {
     }
     private func publish() {
         store.save(alarms: alarms); store.save(timers: timers)
+        AutoDismissWatcher.shared.refresh()
         onChange?(snapshot)
         ChymeConnectivity.shared.publish(snapshot)
     }
@@ -155,7 +156,7 @@ public final class AlarmEngine: ObservableObject {
             timers[index].pausedRemaining = max(0, value.totalCountdownDuration - value.previouslyElapsedDuration)
             timers[index].endsAt = nil
         case .alert:
-            timers[index].endsAt = .now
+            timers[index].endsAt = min(timers[index].endsAt ?? .now, .now)
             timers[index].pausedRemaining = nil
         @unknown default: break
         }
@@ -185,7 +186,7 @@ public final class AlarmEngine: ObservableObject {
                 }
                 knownStates[alarm.id] = "countdown"
             case .alerting:
-                timers[index].endsAt = .now; timers[index].pausedRemaining = nil
+                timers[index].endsAt = min(timers[index].endsAt ?? .now, .now); timers[index].pausedRemaining = nil
                 knownStates[alarm.id] = "alerting"
             default: break
             }
