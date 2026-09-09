@@ -2,6 +2,7 @@ import Foundation
 import Combine
 #if canImport(AlarmKit)
 import AlarmKit
+import ActivityKit
 #endif
 
 @MainActor
@@ -11,6 +12,8 @@ public final class AlarmEngine: ObservableObject {
     @Published public private(set) var timers: [ChymeTimer]
     private let store = ChymeStore()
     private var observation: Task<Void, Never>?
+    private var activityObservation: Task<Void, Never>?
+    private var activityTasks: [String: Task<Void, Never>] = [:]
     private var replies: [UUID: ClockReply] = [:]
     private var processing: Set<UUID> = []
     private var knownStates: [UUID: String] = [:]
@@ -30,6 +33,10 @@ public final class AlarmEngine: ObservableObject {
             return store.loadAlarms().first { $0.id == id }?.autoDismiss
                 ?? store.loadTimers().first { $0.id == id }?.autoDismiss
         }
+        for activity in Activity<AlarmAttributes<ChymeMetadata>>.activities { observe(activity) }
+        activityObservation = Task {
+            for await activity in Activity<AlarmAttributes<ChymeMetadata>>.activityUpdates { observe(activity) }
+        }
         observation = Task {
             for await current in AlarmManager.shared.alarmUpdates { reconcile(current) }
         }
@@ -44,6 +51,7 @@ public final class AlarmEngine: ObservableObject {
     public func refresh() {
         #if canImport(AlarmKit)
         if let current = (try? AlarmManager.shared.alarms) { reconcile(current) }
+        for activity in Activity<AlarmAttributes<ChymeMetadata>>.activities { apply(activity.content.state) }
         #endif
         publish()
     }
@@ -125,6 +133,34 @@ public final class AlarmEngine: ObservableObject {
         #endif
     }
     #if canImport(AlarmKit)
+    private func observe(_ activity: Activity<AlarmAttributes<ChymeMetadata>>) {
+        guard activityTasks[activity.id] == nil else { return }
+        apply(activity.content.state)
+        activityTasks[activity.id] = Task {
+            for await content in activity.contentUpdates {
+                apply(content.state)
+                publish()
+            }
+            activityTasks[activity.id] = nil
+        }
+    }
+    /// System countdown state remains authoritative after Lock Screen/Watch actions.
+    private func apply(_ state: AlarmPresentationState) {
+        guard let index = timers.firstIndex(where: { $0.id == state.alarmID }) else { return }
+        switch state.mode {
+        case .countdown(let value):
+            timers[index].endsAt = value.fireDate
+            timers[index].pausedRemaining = nil
+        case .paused(let value):
+            timers[index].pausedRemaining = max(0, value.totalCountdownDuration - value.previouslyElapsedDuration)
+            timers[index].endsAt = nil
+        case .alert:
+            timers[index].endsAt = .now
+            timers[index].pausedRemaining = nil
+        @unknown default: break
+        }
+    }
+
     private func reconcile(_ current: [Alarm]) {
         let ids = Set(current.map(\.id))
         timers.removeAll { !ids.contains($0.id) }
@@ -154,6 +190,7 @@ public final class AlarmEngine: ObservableObject {
             default: break
             }
         }
+        for activity in Activity<AlarmAttributes<ChymeMetadata>>.activities { apply(activity.content.state) }
         publish()
     }
     #endif

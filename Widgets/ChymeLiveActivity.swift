@@ -72,7 +72,7 @@ struct ClockActivityTime: View {
         switch state.mode {
         case .countdown(let value):
             Text(timerInterval: value.startDate...value.fireDate, countsDown: true)
-        case .paused: Text("Paused")
+        case .paused(let value): Text(ClockText.duration(max(0, value.totalCountdownDuration - value.previouslyElapsedDuration)))
         case .alert: Text("Time’s up")
         @unknown default: Text("Chymee")
         }

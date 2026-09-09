@@ -17,7 +17,7 @@ struct SettingsView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("Connected Alarms") {
-                Text("iPhone schedules your alarms and timers. Keep it nearby to create or change them from Watch. The stopwatch works independently on each device.")
+                Text("iPhone schedules your alarms and timers. Keep it nearby to create or change them from Watch. Scheduled alerts are managed by iOS and can appear on the paired Watch even while Chymee is in the background. The stopwatch works independently on each device.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }.navigationTitle("Settings")

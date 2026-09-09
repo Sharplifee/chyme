@@ -1,7 +1,6 @@
 import Foundation
 
-/// How long a ringing alarm or timer is allowed to sound before it stops itself.
-/// This is the whole point of Chyme: nothing rings forever.
+/// Requested alert duration. Automatic stopping requires the iPhone process to remain active.
 public struct AutoDismiss: Codable, Hashable, Sendable {
     public var seconds: Int
 
@@ -50,7 +49,7 @@ public struct ChymeAlarm: Codable, Identifiable, Hashable, Sendable {
                 minuteOfDay: Int,
                 repeatDays: Set<Int> = [],
                 isEnabled: Bool = true,
-                soundName: String = "Radial",
+                soundName: String = "System",
                 snoozeEnabled: Bool = true,
                 autoDismiss: AutoDismiss = .fiveMinutes) {
         self.id = id
@@ -80,7 +79,7 @@ public struct ChymeTimer: Codable, Identifiable, Hashable, Sendable {
                 label: String = "Timer",
                 duration: TimeInterval,
                 autoDismiss: AutoDismiss = .fiveMinutes,
-                soundName: String = "Radial") {
+                soundName: String = "System") {
         self.id = id
         self.label = label
         self.duration = duration

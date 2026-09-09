@@ -33,7 +33,7 @@ targets:
         UILaunchScreen: {}
         CFBundleURLTypes:
           - CFBundleURLSchemes: [chymee]
-        NSAlarmKitUsageDescription: "Chyme schedules your alarms and timers so they ring reliably and stop on their own."
+        NSAlarmKitUsageDescription: "Chymee schedules alarms and timers that can alert on your Lock Screen and paired Apple Watch."
         NSSupportsLiveActivities: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
