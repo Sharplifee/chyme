@@ -65,9 +65,15 @@ jobs:
           done
           ls -la "$DIR"
 
-      - name: Resolve build number
+      - name: Resolve version and build number
         id: bn
-        run: echo "build_number=$(( $(date +%s) / 60 ))" >> $GITHUB_OUTPUT
+        run: |
+          # Marketing version iterates with the repo: 1.<commit count>.
+          # Build number stays monotonic so uploads never collide.
+          COMMITS=$(git rev-list --count HEAD)
+          echo "marketing_version=1.$COMMITS" >> $GITHUB_OUTPUT
+          echo "build_number=$(( $(date +%s) / 60 ))" >> $GITHUB_OUTPUT
+          echo "shipping 1.$COMMITS"
 
       - name: Archive
         run: |
@@ -76,6 +82,7 @@ jobs:
             -scheme Chyme \
             -destination 'generic/platform=iOS' \
             -archivePath $RUNNER_TEMP/Chyme.xcarchive \
+            MARKETING_VERSION=${{ steps.bn.outputs.marketing_version }} \
             CURRENT_PROJECT_VERSION=${{ steps.bn.outputs.build_number }} \
             archive 2>&1 | tee /tmp/archive.log | grep -E "error:|ARCHIVE|Signing" || true
           grep -q "ARCHIVE SUCCEEDED" /tmp/archive.log
