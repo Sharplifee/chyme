@@ -16,7 +16,11 @@ struct ConfiguredTimerProvider: AppIntentTimelineProvider {
         [1, 3, 5, 10, 15, 30].map { minutes in
             let configuration = TimerConfiguration()
             configuration.minutes = minutes
-            return AppIntentRecommendation(intent: configuration, description: "\(minutes) minute timer")
+            // LocalizedStringResource traps when built from a runtime interpolation;
+            // go through the string-literal initialiser with an already-formed String.
+            let text = "\(minutes) minute timer"
+            return AppIntentRecommendation(intent: configuration,
+                                           description: LocalizedStringResource(stringLiteral: text))
         }
     }
     func placeholder(in context: Context) -> ClockEntry { ClockEntry(date: .now) }
