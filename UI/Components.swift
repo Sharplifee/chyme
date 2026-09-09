@@ -2,12 +2,13 @@ import SwiftUI
 
 struct DurationPicker: View {
     @Binding var seconds: Int
+    var maximumHours: Int = 23
     private func part(_ divisor: Int, modulus: Int) -> Binding<Int> {
         Binding(get: { seconds / divisor % modulus }, set: { seconds += ($0 - seconds / divisor % modulus) * divisor })
     }
     var body: some View {
         HStack(spacing: 0) {
-            column("Hours", short: "hr", value: part(3600, modulus: 24), range: 0..<24)
+            column("Hours", short: "hr", value: part(3600, modulus: maximumHours + 1), range: 0..<(maximumHours + 1))
             column("Minutes", short: "min", value: part(60, modulus: 60), range: 0..<60)
             column("Seconds", short: "sec", value: part(1, modulus: 60), range: 0..<60)
         }
@@ -68,20 +69,37 @@ struct RepeatPicker: View {
 
 struct AutoDismissPickerView: View {
     @Binding var selection: AutoDismiss
+    @State private var customSeconds = 300
+    private var enabled: Binding<Bool> {
+        Binding(get: { selection.isEnabled }, set: { value in
+            selection = AutoDismiss(seconds: value ? max(1, customSeconds) : 0)
+        })
+    }
     var body: some View {
-        List {
+        Form {
             Section {
-                ForEach(AutoDismiss.presets, id: \.self) { value in
-                    Button { selection = value } label: {
-                        HStack {
-                            Text(value.label).foregroundStyle(.primary); Spacer()
-                            if selection == value { Image(systemName: "checkmark").foregroundStyle(.orange) }
-                        }
-                    }.accessibilityValue(selection == value ? "Selected" : "Not selected")
+                Toggle("Stop Automatically", isOn: enabled).tint(.orange)
+                if selection.isEnabled {
+                    DurationPicker(seconds: $customSeconds, maximumHours: 99)
+                    Text("Stop after " + AutoDismiss(seconds: max(1, customSeconds)).label)
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
             } footer: {
-                Text("Automatic stopping requires Chymee to remain active on iPhone. If iOS suspends the app, the alert may continue until stopped.")
+                #if os(watchOS)
+                Text("Tap hours, minutes, or seconds, then turn the Digital Crown. Minimum duration is 1 second.")
+                #else
+                Text("Choose hours, minutes, and seconds. Minimum duration is 1 second.")
+                #endif
             }
-        }.navigationTitle("Stop Ringing After")
+            Section {
+                Text("Automatic stopping requires Chymee to remain active on iPhone. If iOS suspends the app, the alert may continue until stopped.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Stop Ringing After")
+        .onAppear { customSeconds = min(359999, max(1, selection.isEnabled ? selection.seconds : 300)) }
+        .onChange(of: customSeconds) { _, value in
+            if selection.isEnabled { selection = AutoDismiss(seconds: max(1, value)) }
+        }
     }
 }
