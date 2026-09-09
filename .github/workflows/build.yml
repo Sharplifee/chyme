@@ -12,6 +12,8 @@ jobs:
       APP_BUNDLE: com.connor.chyme
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # shallow clone makes the commit count always 1
 
       - name: Select newest Xcode
         run: |
