@@ -1,7 +1,9 @@
 import SwiftUI
+import WatchKit
 
 @main
 struct ChymeWatchApp: App {
+    @WKApplicationDelegateAdaptor(WatchAppDelegate.self) private var delegate
     @StateObject private var clock = ClockController()
     @StateObject private var connection = ChymeConnectivity.shared
     @Environment(\.scenePhase) private var phase

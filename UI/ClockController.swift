@@ -14,11 +14,13 @@ final class ClockController: ObservableObject {
         let link = ChymeConnectivity.shared
         #if os(watchOS)
         tab = "home"
+        lastSync = UserDefaults.standard.object(forKey: "clock.snapshotDate") as? Date
         link.receiveSnapshot = { [weak self] in self?.accept($0) }
         #else
         let engine = AlarmEngine.shared
         engine.onChange = { [weak self] in self?.accept($0) }
         link.execute = { await engine.perform($0) }
+        link.onActivation = { engine.refresh() }
         engine.start()
         #endif
     }

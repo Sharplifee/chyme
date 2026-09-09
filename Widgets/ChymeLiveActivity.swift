@@ -15,8 +15,7 @@ struct ChymeAlarmLiveActivity: Widget {
                 }
                 Spacer()
                 if let id = context.attributes.metadata?.id {
-                    Button(intent: ChymeStopIntent(alarmID: id)) { Image(systemName: "stop.fill").padding(12) }
-                        .buttonStyle(.bordered).tint(.orange).accessibilityLabel("Stop")
+                    ClockActivityControls(id: id, state: context.state)
                 }
             }.padding().activityBackgroundTint(.black).activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
@@ -28,7 +27,7 @@ struct ChymeAlarmLiveActivity: Widget {
                         Text(context.attributes.presentation.alert.title).font(.headline)
                         Spacer()
                         if let id = context.attributes.metadata?.id {
-                            Button(intent: ChymeStopIntent(alarmID: id)) { Label("Stop", systemImage: "stop.fill") }
+                            ClockActivityControls(id: id, state: context.state)
                         }
                     }
                 }
@@ -41,6 +40,30 @@ struct ChymeAlarmLiveActivity: Widget {
             }
             .keylineTint(.orange).widgetURL(URL(string: "chymee://timers"))
         }
+    }
+}
+struct ClockActivityControls: View {
+    let id: UUID
+    let state: AlarmPresentationState
+    var body: some View {
+        HStack {
+            switch state.mode {
+            case .countdown:
+                Button(intent: ChymePauseIntent(alarmID: id)) { Image(systemName: "pause.fill") }
+                    .accessibilityLabel("Pause")
+                Button(intent: ChymeCancelIntent(alarmID: id)) { Image(systemName: "xmark") }
+                    .accessibilityLabel("Cancel timer")
+            case .paused:
+                Button(intent: ChymeResumeIntent(alarmID: id)) { Image(systemName: "play.fill") }
+                    .accessibilityLabel("Resume")
+                Button(intent: ChymeCancelIntent(alarmID: id)) { Image(systemName: "xmark") }
+                    .accessibilityLabel("Cancel timer")
+            case .alert:
+                Button(intent: ChymeStopIntent(alarmID: id)) { Image(systemName: "stop.fill") }
+                    .accessibilityLabel("Stop")
+            @unknown default: EmptyView()
+            }
+        }.buttonStyle(.bordered).tint(.orange)
     }
 }
 struct ClockActivityTime: View {

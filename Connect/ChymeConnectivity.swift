@@ -8,6 +8,8 @@ public final class ChymeConnectivity: NSObject, ObservableObject, WCSessionDeleg
     public static let shared = ChymeConnectivity()
     @Published public private(set) var reachable = false
     public var receiveSnapshot: ((ClockSnapshot) -> Void)?
+    public var onActivation: (() -> Void)?
+    private var latestSnapshot: ClockSnapshot?
     public var execute: ((ClockCommand) async -> ClockReply)?
     private var pending: [UUID: CheckedContinuation<ClockReply, Never>] = [:]
 
@@ -20,6 +22,7 @@ public final class ChymeConnectivity: NSObject, ObservableObject, WCSessionDeleg
     }
 
     public func publish(_ snapshot: ClockSnapshot) {
+        latestSnapshot = snapshot
         guard WCSession.isSupported(), WCSession.default.activationState == .activated,
               let data = try? JSONEncoder().encode(snapshot) else { return }
         try? WCSession.default.updateApplicationContext(["snapshot": data])
@@ -52,6 +55,17 @@ public final class ChymeConnectivity: NSObject, ObservableObject, WCSessionDeleg
         }
     }
 
+    private func accept(_ snapshot: ClockSnapshot) {
+        #if os(watchOS)
+        let previous = UserDefaults.standard.object(forKey: "clock.snapshotDate") as? Date
+        guard previous == nil || snapshot.date >= previous! else { return }
+        ChymeStore().save(alarms: snapshot.alarms)
+        ChymeStore().save(timers: snapshot.timers)
+        UserDefaults.standard.set(snapshot.date, forKey: "clock.snapshotDate")
+        #endif
+        receiveSnapshot?(snapshot)
+    }
+
     private func finish(_ id: UUID, _ reply: ClockReply) {
         pending.removeValue(forKey: id)?.resume(returning: reply)
     }
@@ -61,7 +75,9 @@ public final class ChymeConnectivity: NSObject, ObservableObject, WCSessionDeleg
         let snapshot = (session.receivedApplicationContext["snapshot"] as? Data).flatMap { try? JSONDecoder().decode(ClockSnapshot.self, from: $0) }
         Task { @MainActor in
             self.reachable = connected
-            if let snapshot { self.receiveSnapshot?(snapshot) }
+            if let snapshot { self.accept(snapshot) }
+            if let latest = self.latestSnapshot { self.publish(latest) }
+            self.onActivation?()
         }
     }
     nonisolated public func sessionReachabilityDidChange(_ session: WCSession) {
@@ -71,7 +87,7 @@ public final class ChymeConnectivity: NSObject, ObservableObject, WCSessionDeleg
     nonisolated public func session(_ session: WCSession, didReceiveApplicationContext context: [String: Any]) {
         guard let data = context["snapshot"] as? Data,
               let snapshot = try? JSONDecoder().decode(ClockSnapshot.self, from: data) else { return }
-        Task { @MainActor in self.receiveSnapshot?(snapshot) }
+        Task { @MainActor in self.accept(snapshot) }
     }
     nonisolated public func session(_ session: WCSession, didReceiveMessage message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
         guard let data = message["command"] as? Data,

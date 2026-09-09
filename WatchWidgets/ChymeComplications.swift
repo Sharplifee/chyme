@@ -12,6 +12,13 @@ struct ClockEntry: TimelineEntry {
     var minutes: Int = 5
 }
 struct ConfiguredTimerProvider: AppIntentTimelineProvider {
+    func recommendations() -> [AppIntentRecommendation<TimerConfiguration>] {
+        [1, 3, 5, 10, 15, 30].map { minutes in
+            let configuration = TimerConfiguration()
+            configuration.minutes = minutes
+            return AppIntentRecommendation(intent: configuration, description: "\(minutes) minute timer")
+        }
+    }
     func placeholder(in context: Context) -> ClockEntry { ClockEntry(date: .now) }
     func snapshot(for configuration: TimerConfiguration, in context: Context) async -> ClockEntry {
         ClockEntry(date: .now, minutes: min(1439, max(1, configuration.minutes)))

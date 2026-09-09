@@ -19,7 +19,7 @@ struct ChymeStopIntent: LiveActivityIntent {
 
     func perform() async throws -> some IntentResult {
         if let id = UUID(uuidString: alarmID) {
-            try? AlarmManager.shared.stop(id: id)
+            try AlarmManager.shared.stop(id: id)
         }
         return .result()
     }
@@ -35,8 +35,41 @@ struct ChymeSnoozeIntent: LiveActivityIntent {
 
     func perform() async throws -> some IntentResult {
         if let id = UUID(uuidString: alarmID) {
-            try? AlarmManager.shared.countdown(id: id)
+            try AlarmManager.shared.countdown(id: id)
         }
+        return .result()
+    }
+}
+
+struct ChymePauseIntent: LiveActivityIntent {
+    static let title: LocalizedStringResource = "Pause Timer"
+    @Parameter(title: "Alarm ID") var alarmID: String
+    init() {}
+    init(alarmID: UUID) { self.alarmID = alarmID.uuidString }
+    func perform() async throws -> some IntentResult {
+        if let id = UUID(uuidString: alarmID) { try AlarmManager.shared.pause(id: id) }
+        return .result()
+    }
+}
+
+struct ChymeResumeIntent: LiveActivityIntent {
+    static let title: LocalizedStringResource = "Resume Timer"
+    @Parameter(title: "Alarm ID") var alarmID: String
+    init() {}
+    init(alarmID: UUID) { self.alarmID = alarmID.uuidString }
+    func perform() async throws -> some IntentResult {
+        if let id = UUID(uuidString: alarmID) { try AlarmManager.shared.resume(id: id) }
+        return .result()
+    }
+}
+
+struct ChymeCancelIntent: LiveActivityIntent {
+    static let title: LocalizedStringResource = "Cancel Timer"
+    @Parameter(title: "Alarm ID") var alarmID: String
+    init() {}
+    init(alarmID: UUID) { self.alarmID = alarmID.uuidString }
+    func perform() async throws -> some IntentResult {
+        if let id = UUID(uuidString: alarmID) { try AlarmManager.shared.cancel(id: id) }
         return .result()
     }
 }
