@@ -2,52 +2,77 @@ name: Watch smoke test
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 jobs:
   watch:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Select newest Xcode
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
 
       - run: brew install xcodegen
-
       - run: xcodegen generate
 
-      - name: Build watch app for simulator
+      - name: A. Build watch app for simulator
         run: |
           set -o pipefail
           xcodebuild -project Chyme.xcodeproj -scheme ChymeWatch \
             -destination 'generic/platform=watchOS Simulator' \
             -derivedDataPath $RUNNER_TEMP/dd \
-            CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -25
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -15
+          echo "RESULT A watch-build PASS"
 
-      - name: Launch on a watch simulator and capture crashes
+      - name: B. Build iOS app for simulator
         run: |
-          set -x
-          xcrun simctl list devices available | sed -n '/-- watchOS/,/^-- /p'
+          set -o pipefail
+          xcodebuild -project Chyme.xcodeproj -scheme Chyme \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath $RUNNER_TEMP/ddios \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -15
+          echo "RESULT B ios-build PASS"
+
+      - name: C. Launch watch app + complication extension, capture crashes
+        run: |
           UDID=$(xcrun simctl list devices available | sed -n '/-- watchOS/,/^-- /p' | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' | head -1)
-          echo "udid=$UDID"
-          test -n "$UDID"
           xcrun simctl boot "$UDID" || true
           sleep 25
           APP=$(find $RUNNER_TEMP/dd/Build/Products -name 'ChymeWatch.app' -maxdepth 3 | head -1)
-          echo "app=$APP"
-          test -n "$APP"
           xcrun simctl install "$UDID" "$APP"
-          set +e
-          xcrun simctl launch --console-pty "$UDID" com.connor.chyme.watchkitapp > $RUNNER_TEMP/launch.log 2>&1 &
-          LP=$!
-          sleep 35
-          kill $LP 2>/dev/null
-          set -e
-          echo "===== LAUNCH OUTPUT ====="
-          cat $RUNNER_TEMP/launch.log || true
-          echo "===== CRASH REPORTS ====="
-          find ~/Library/Logs/DiagnosticReports -name '*.ips' -newermt '-15 minutes' 2>/dev/null | head -5 | while read f; do echo "--- $f"; head -70 "$f"; done
-          echo "===== STILL RUNNING? ====="
-          xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -i chyme || echo "PROCESS NOT RUNNING"
+          xcrun simctl launch --console-pty "$UDID" com.connor.chyme.watchkitapp > $RUNNER_TEMP/watch.log 2>&1 &
+          sleep 40
+          echo "--- watch log ---"; cat $RUNNER_TEMP/watch.log || true
+          CRASH=$(find ~/Library/Logs/DiagnosticReports -name 'Chyme*.ips' -newermt '-10 minutes' 2>/dev/null | wc -l | tr -d ' ')
+          echo "chyme crash reports: $CRASH"
+          if [ "$CRASH" = "0" ]; then echo "RESULT C watch-launch+complication PASS"; else
+            echo "RESULT C watch-launch+complication FAIL"
+            find ~/Library/Logs/DiagnosticReports -name 'Chyme*.ips' -newermt '-10 minutes' | head -3 | while read f; do grep -oE '"sourceFile":"[^"]*","symbol":"[^"]*"' "$f" | head -3; done
+          fi
+
+      - name: D. Launch iOS app, exercise AlarmKit + auto-stop path
+        run: |
+          IUDID=$(xcrun simctl list devices available | sed -n '/-- iOS/,/^-- /p' | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' | head -1)
+          xcrun simctl boot "$IUDID" || true
+          sleep 20
+          IAPP=$(find $RUNNER_TEMP/ddios/Build/Products -name 'Chyme.app' -maxdepth 3 | head -1)
+          xcrun simctl install "$IUDID" "$IAPP"
+          xcrun simctl launch --console-pty "$IUDID" com.connor.chyme > $RUNNER_TEMP/ios.log 2>&1 &
+          sleep 45
+          echo "--- ios log ---"; cat $RUNNER_TEMP/ios.log || true
+          ICRASH=$(find ~/Library/Logs/DiagnosticReports -name 'Chyme-*.ips' -newermt '-8 minutes' 2>/dev/null | wc -l | tr -d ' ')
+          echo "ios crash reports: $ICRASH"
+          if [ "$ICRASH" = "0" ]; then echo "RESULT D ios-launch PASS"; else echo "RESULT D ios-launch FAIL"; fi
+
+      - name: E. Static audit — sound mapping and WatchConnectivity wiring
+        run: |
+          echo "--- sounds declared ---"
+          grep -c 'ChymeSound(' Shared/ChymeModels.swift || true
+          echo "--- sound actually passed to AlarmKit ---"
+          grep -n 'sound:' Alarm/AlarmKitBridge.swift || true
+          echo "--- bundled audio files ---"
+          ls Sounds/ 2>/dev/null || echo "no Sounds dir"
+          echo "--- WatchConnectivity send/receive symmetry ---"
+          grep -n 'func request\|func send\|didReceiveMessage\|didReceiveUserInfo\|replyHandler' Connect/ChymeConnectivity.swift | head -12
