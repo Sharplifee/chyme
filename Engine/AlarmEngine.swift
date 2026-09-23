@@ -74,8 +74,16 @@ public final class AlarmEngine: ObservableObject {
                     #if canImport(AlarmKit)
                     try await AlarmKitBridge.scheduleFixed(id: alarm.id, hour: alarm.hour, minute: alarm.minute,
                         weekdays: alarm.repeatDays, label: alarm.label, sound: alarm.soundName, allowSnooze: alarm.snoozeEnabled)
-                    await SilentStopper.arm(target: alarm.id, hour: alarm.hour, minute: alarm.minute,
-                                            weekdays: alarm.repeatDays, cutoff: alarm.autoDismiss)
+                    // Detached: a stopper failure must never surface as
+                    // "Couldn't Complete Change" on the user's save.
+                    let stopperAlarm = alarm
+                    Task.detached {
+                        await SilentStopper.arm(target: stopperAlarm.id,
+                                                hour: stopperAlarm.hour,
+                                                minute: stopperAlarm.minute,
+                                                weekdays: stopperAlarm.repeatDays,
+                                                cutoff: stopperAlarm.autoDismiss)
+                    }
                     #endif
                 } else { try cancel(alarm.id) }
                 alarms.removeAll { $0.id == alarm.id }; alarms.append(alarm)
@@ -91,7 +99,12 @@ public final class AlarmEngine: ObservableObject {
                 timer.endsAt = .now.addingTimeInterval(timer.duration); timer.pausedRemaining = nil
                 #if canImport(AlarmKit)
                 try await AlarmKitBridge.scheduleCountdown(id: timer.id, duration: timer.duration, label: timer.label, sound: timer.soundName)
-                await SilentStopper.arm(target: timer.id, firesIn: timer.duration, cutoff: timer.autoDismiss)
+                let stopperTimer = timer
+                Task.detached {
+                    await SilentStopper.arm(target: stopperTimer.id,
+                                            firesIn: stopperTimer.duration,
+                                            cutoff: stopperTimer.autoDismiss)
+                }
                 #endif
                 timers.removeAll { $0.id == timer.id }; timers.append(timer)
             case "cancelTimer":

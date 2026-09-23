@@ -118,7 +118,9 @@ public struct ChymeSound: Codable, Hashable, Identifiable, Sendable {
     public var id: String { name }
     public init(_ name: String) { self.name = name }
 
-    public static let all = [ChymeSound("System"), ChymeSound("Bell"), ChymeSound("Pulse"), ChymeSound("Dawn")]
+    public static let all = ["System", "Bell", "Chime", "Pulse", "Dawn", "Ripple",
+                             "Beacon", "Summit", "Signal", "Uplift", "Twinkle",
+                             "Crystal", "Hillside"].map(ChymeSound.init)
     public static let `default` = ChymeSound("System")
     public static func resolved(_ name: String) -> String {
         all.contains(where: { $0.name == name }) ? name : "System"
