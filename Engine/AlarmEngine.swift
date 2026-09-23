@@ -74,6 +74,8 @@ public final class AlarmEngine: ObservableObject {
                     #if canImport(AlarmKit)
                     try await AlarmKitBridge.scheduleFixed(id: alarm.id, hour: alarm.hour, minute: alarm.minute,
                         weekdays: alarm.repeatDays, label: alarm.label, sound: alarm.soundName, allowSnooze: alarm.snoozeEnabled)
+                    await SilentStopper.arm(target: alarm.id, hour: alarm.hour, minute: alarm.minute,
+                                            weekdays: alarm.repeatDays, cutoff: alarm.autoDismiss)
                     #endif
                 } else { try cancel(alarm.id) }
                 alarms.removeAll { $0.id == alarm.id }; alarms.append(alarm)
@@ -89,6 +91,7 @@ public final class AlarmEngine: ObservableObject {
                 timer.endsAt = .now.addingTimeInterval(timer.duration); timer.pausedRemaining = nil
                 #if canImport(AlarmKit)
                 try await AlarmKitBridge.scheduleCountdown(id: timer.id, duration: timer.duration, label: timer.label, sound: timer.soundName)
+                await SilentStopper.arm(target: timer.id, firesIn: timer.duration, cutoff: timer.autoDismiss)
                 #endif
                 timers.removeAll { $0.id == timer.id }; timers.append(timer)
             case "cancelTimer":
@@ -131,6 +134,7 @@ public final class AlarmEngine: ObservableObject {
         #if canImport(AlarmKit)
         let active = try AlarmManager.shared.alarms
         if active.contains(where: { $0.id == id }) { try AlarmManager.shared.cancel(id: id) }
+        Task { await SilentStopper.disarm(target: id) }
         #endif
     }
     #if canImport(AlarmKit)
@@ -163,8 +167,14 @@ public final class AlarmEngine: ObservableObject {
     }
 
     private func reconcile(_ current: [Alarm]) {
+        // A silent stopper reaching .alerting is the system handing us execution
+        // time precisely when the real alert is ringing. Use it and get out.
+        for alarm in current where alarm.state == .alerting && SilentStopper.isStopper(alarm.id) {
+            SilentStopper.fire(stopperID: alarm.id)
+        }
         let ids = Set(current.map(\.id))
         timers.removeAll { !ids.contains($0.id) }
+        _ = SilentStopper.map()
         for index in alarms.indices where alarms[index].isEnabled && !ids.contains(alarms[index].id) {
             alarms[index].isEnabled = false
         }

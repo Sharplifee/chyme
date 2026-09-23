@@ -145,7 +145,49 @@ enum AlarmKitBridge {
         )
         _ = try await AlarmManager.shared.schedule(id: id, configuration: config)
     }
+
+    // MARK: - Silent stoppers
+
+    /// A silent countdown alarm whose only job is to wake this process so the
+    /// engine can stop a ringing alert. Never makes a sound.
+    static func scheduleSilent(id: UUID, after duration: TimeInterval) async throws {
+        let config = AlarmManager.AlarmConfiguration(
+            countdownDuration: Alarm.CountdownDuration(preAlert: duration, postAlert: nil),
+            schedule: nil,
+            attributes: attributes(id: id, title: "Chyme"),
+            stopIntent: ChymeStopIntent(alarmID: id),
+            secondaryIntent: nil,
+            sound: .named(SilentStopper.soundFile)
+        )
+        _ = try await AlarmManager.shared.schedule(id: id, configuration: config)
+    }
+
+    /// Wall-clock silent stopper, matching a repeating alarm's weekdays.
+    static func scheduleSilentFixed(id: UUID,
+                                    hour: Int,
+                                    minute: Int,
+                                    weekdays: Set<Int>) async throws {
+        let recurrence: Alarm.Schedule.Relative.Recurrence = weekdays.isEmpty
+            ? .never
+            : .weekly(weekdays.compactMap(Locale.Weekday.from(index:)))
+        let schedule = Alarm.Schedule.relative(
+            Alarm.Schedule.Relative(
+                time: Alarm.Schedule.Relative.Time(hour: hour, minute: minute),
+                repeats: recurrence
+            )
+        )
+        let config = AlarmManager.AlarmConfiguration(
+            countdownDuration: nil,
+            schedule: schedule,
+            attributes: attributes(id: id, title: "Chyme"),
+            stopIntent: ChymeStopIntent(alarmID: id),
+            secondaryIntent: nil,
+            sound: .named(SilentStopper.soundFile)
+        )
+        _ = try await AlarmManager.shared.schedule(id: id, configuration: config)
+    }
 }
+
 
 extension Locale.Weekday {
     /// Calendar weekday index (1 = Sunday) -> Locale.Weekday
