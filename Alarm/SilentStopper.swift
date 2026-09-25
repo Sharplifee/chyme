@@ -14,7 +14,7 @@ import AlarmKit
 @MainActor
 enum SilentStopper {
 
-    static let soundFile = "silence.wav"
+    nonisolated static let soundFile = "silence.wav"
 
     /// stopper id -> id of the alert it silences.
     private static let mapKey = "silentStopperMap"
