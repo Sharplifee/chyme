@@ -77,7 +77,7 @@ public final class AlarmEngine: ObservableObject {
                     // Detached: a stopper failure must never surface as
                     // "Couldn't Complete Change" on the user's save.
                     let stopperAlarm = alarm
-                    Task.detached {
+                    Task { @MainActor in
                         await SilentStopper.arm(target: stopperAlarm.id,
                                                 hour: stopperAlarm.hour,
                                                 minute: stopperAlarm.minute,
@@ -100,7 +100,7 @@ public final class AlarmEngine: ObservableObject {
                 #if canImport(AlarmKit)
                 try await AlarmKitBridge.scheduleCountdown(id: timer.id, duration: timer.duration, label: timer.label, sound: timer.soundName)
                 let stopperTimer = timer
-                Task.detached {
+                Task { @MainActor in
                     await SilentStopper.arm(target: stopperTimer.id,
                                             firesIn: stopperTimer.duration,
                                             cutoff: stopperTimer.autoDismiss)
@@ -147,7 +147,7 @@ public final class AlarmEngine: ObservableObject {
         #if canImport(AlarmKit)
         let active = try AlarmManager.shared.alarms
         if active.contains(where: { $0.id == id }) { try AlarmManager.shared.cancel(id: id) }
-        Task { await SilentStopper.disarm(target: id) }
+        Task { @MainActor in await SilentStopper.disarm(target: id) }
         #endif
     }
     #if canImport(AlarmKit)

@@ -11,6 +11,7 @@ import AlarmKit
 /// window the engine stops the real alarm and then stops the stopper itself.
 ///
 /// Applies identically to alarms, timers and the stopwatch alert.
+@MainActor
 enum SilentStopper {
 
     static let soundFile = "silence.wav"
@@ -49,7 +50,15 @@ enum SilentStopper {
 
     /// Countdown alerts (timers, stopwatch alert): stopper fires `duration + cutoff`
     /// from now, so it lands `cutoff` after the alert starts ringing.
+    /// Master switch. If the paired-stopper approach misbehaves on device the
+    /// user can turn it off in Settings without losing alarms entirely.
+    static var isEnabled: Bool {
+        get { (UserDefaults.standard.object(forKey: "silentStopperEnabled") as? Bool) ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "silentStopperEnabled") }
+    }
+
     static func arm(target: UUID, firesIn duration: TimeInterval, cutoff: AutoDismiss) async {
+        guard isEnabled else { return }
         await disarm(target: target)
         guard cutoff.isEnabled else { return }
         let id = UUID()
@@ -70,6 +79,7 @@ enum SilentStopper {
                     minute: Int,
                     weekdays: Set<Int>,
                     cutoff: AutoDismiss) async {
+        guard isEnabled else { return }
         await disarm(target: target)
         guard cutoff.isEnabled else { return }
 
