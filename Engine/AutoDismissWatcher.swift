@@ -68,7 +68,7 @@ final class AutoDismissWatcher: ObservableObject {
             // Background tasks are bounded; do not consume a task for a long idle wait.
             if delay > 20 { try await Task.sleep(for: .seconds(delay - 20)) }
             guard !Task.isCancelled else { return }
-            runtime[id] = UIApplication.shared.beginBackgroundTask(withName: "Finish alarm stop") { [weak self] in
+            runtime[id] = UIApplication.shared.beginBackgroundTask(withName: "Finish alarm stop") { @Sendable [weak self] in
                 Task { @MainActor in
                     self?.record("Background runtime expired before stop completed: \(id)")
                     self?.endRuntime(id)

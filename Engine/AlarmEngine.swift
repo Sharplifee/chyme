@@ -33,6 +33,7 @@ public final class AlarmEngine: ObservableObject {
             return store.loadAlarms().first { $0.id == id }?.autoDismiss
                 ?? store.loadTimers().first { $0.id == id }?.autoDismiss
         }
+        purgeOrphanedSystemAlarms()
         for activity in Activity<AlarmAttributes<ChymeMetadata>>.activities { observe(activity) }
         activityObservation = Task {
             for await activity in Activity<AlarmAttributes<ChymeMetadata>>.activityUpdates { observe(activity) }
@@ -179,6 +180,19 @@ public final class AlarmEngine: ObservableObject {
         }
     }
 
+    /// Any AlarmKit alarm that isn't one of ours, or a stopper for one of ours, is a
+    /// leak from an earlier build. Leaks count against AlarmKit's per-app limit and
+    /// are why saving failed with "AlarmKit.Alarm error 0".
+    private func purgeOrphanedSystemAlarms() {
+        guard let current = try? AlarmManager.shared.alarms else { return }
+        let owned = Set(alarms.filter(\.isEnabled).map(\.id)).union(timers.map(\.id))
+        let stoppers = Set(SilentStopper.map().keys.compactMap(UUID.init(uuidString:)))
+        for alarm in current where !owned.contains(alarm.id) && !stoppers.contains(alarm.id) {
+            try? AlarmManager.shared.cancel(id: alarm.id)
+        }
+        SilentStopper.purge(existing: Set((try? AlarmManager.shared.alarms)?.map(\.id) ?? []))
+    }
+
     private func reconcile(_ current: [Alarm]) {
         // A silent stopper reaching .alerting is the system handing us execution
         // time precisely when the real alert is ringing. Use it and get out.
@@ -186,8 +200,8 @@ public final class AlarmEngine: ObservableObject {
             SilentStopper.fire(stopperID: alarm.id)
         }
         let ids = Set(current.map(\.id))
+        SilentStopper.purge(existing: ids)
         timers.removeAll { !ids.contains($0.id) }
-        _ = SilentStopper.map()
         for index in alarms.indices where alarms[index].isEnabled && !ids.contains(alarms[index].id) {
             alarms[index].isEnabled = false
         }

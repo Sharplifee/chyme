@@ -10,10 +10,10 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate {
 
     func applicationDidFinishLaunching() {
         _ = ChymeConnectivity.shared
-        activationObservation = WCSession.default.observe(\.activationState) { [weak self] _, _ in
+        activationObservation = WCSession.default.observe(\.activationState) { @Sendable [weak self] _, _ in
             Task { @MainActor in self?.finishTransfers() }
         }
-        contentObservation = WCSession.default.observe(\.hasContentPending) { [weak self] _, _ in
+        contentObservation = WCSession.default.observe(\.hasContentPending) { @Sendable [weak self] _, _ in
             Task { @MainActor in self?.finishTransfers() }
         }
     }

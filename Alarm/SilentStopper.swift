@@ -113,15 +113,31 @@ enum SilentStopper {
         forget(stopper: id)
     }
 
-    /// Called when a stopper is seen alerting: kill the real alert, then itself.
+    /// Called when a stopper is seen alerting: silence the real alert, then itself.
+    /// `stop` only — `cancel` would delete a repeating alarm and all its future days.
     static func fire(stopperID: UUID) {
         if let target = target(of: stopperID) {
             try? AlarmManager.shared.stop(id: target)
-            try? AlarmManager.shared.cancel(id: target)
         }
         try? AlarmManager.shared.stop(id: stopperID)
-        try? AlarmManager.shared.cancel(id: stopperID)
-        forget(stopper: stopperID)
+    }
+
+    /// Drop bookkeeping for stoppers the system no longer has, and cancel stoppers
+    /// whose alert no longer exists. Leaked alarms are what exhaust AlarmKit's
+    /// per-app limit (AlarmError.maximumLimitReached, shown as "error 0").
+    static func purge(existing: Set<UUID>) {
+        var m = map()
+        for (key, value) in m {
+            guard let stopperID = UUID(uuidString: key) else { m.removeValue(forKey: key); continue }
+            let targetID = UUID(uuidString: value)
+            if !existing.contains(stopperID) {
+                m.removeValue(forKey: key)
+            } else if targetID == nil || !existing.contains(targetID!) {
+                try? AlarmManager.shared.cancel(id: stopperID)
+                m.removeValue(forKey: key)
+            }
+        }
+        defaults.set(m, forKey: mapKey)
     }
 
     static func isStopper(_ id: UUID) -> Bool {

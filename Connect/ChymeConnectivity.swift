@@ -38,21 +38,28 @@ public final class ChymeConnectivity: NSObject, ObservableObject, WCSessionDeleg
         }
         return await withCheckedContinuation { continuation in
             pending[command.requestID] = continuation
-            WCSession.default.sendMessage(["command": data], replyHandler: { payload in
-                let reply = (payload["reply"] as? Data).flatMap { try? JSONDecoder().decode(ClockReply.self, from: $0) }
-                Task { @MainActor in
-                    self.finish(command.requestID, reply ?? ClockReply(error: "The iPhone response could not be read. Refresh before retrying."))
-                }
-            }, errorHandler: { _ in
-                Task { @MainActor in
-                    self.finish(command.requestID, ClockReply(error: "Connection interrupted. Refresh to check whether your change was saved."))
-                }
-            })
+            Self.transmit(data, id: command.requestID, owner: self)
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(20))
                 self.finish(command.requestID, ClockReply(error: "iPhone has not confirmed this change. Refresh before retrying."))
             }
         }
+    }
+
+    /// WatchConnectivity invokes reply and error handlers on its own background
+    /// queue. Closures written inside a @MainActor method inherit main-actor
+    /// isolation, and Swift traps the instant the system calls them off-main —
+    /// that was the watch crash. Building them in a nonisolated context avoids it.
+    nonisolated private static func transmit(_ data: Data, id: UUID, owner: ChymeConnectivity) {
+        WCSession.default.sendMessage(["command": data], replyHandler: { @Sendable payload in
+            let reply = (payload["reply"] as? Data).flatMap { try? JSONDecoder().decode(ClockReply.self, from: $0) }
+                ?? ClockReply(error: "The iPhone response could not be read. Refresh before retrying.")
+            Task { @MainActor in owner.finish(id, reply) }
+        }, errorHandler: { @Sendable _ in
+            Task { @MainActor in
+                owner.finish(id, ClockReply(error: "Connection interrupted. Refresh to check whether your change was saved."))
+            }
+        })
     }
 
     private func accept(_ snapshot: ClockSnapshot) {
