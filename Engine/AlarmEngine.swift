@@ -44,8 +44,15 @@ public final class AlarmEngine: ObservableObject {
         #endif
         publish()
     }
+    /// Hold the process up only while something can ring with an auto-stop.
+    private var needsKeepAlive: Bool {
+        alarms.contains { $0.isEnabled && $0.autoDismiss.isEnabled }
+            || timers.contains { $0.autoDismiss.isEnabled }
+    }
+
     private func publish() {
         store.save(alarms: alarms); store.save(timers: timers)
+        KeepAlive.shared.update(needed: needsKeepAlive)
         AutoDismissWatcher.shared.refresh()
         onChange?(snapshot)
         ChymeConnectivity.shared.publish(snapshot)
@@ -77,14 +84,6 @@ public final class AlarmEngine: ObservableObject {
                         weekdays: alarm.repeatDays, label: alarm.label, sound: alarm.soundName, allowSnooze: alarm.snoozeEnabled)
                     // Detached: a stopper failure must never surface as
                     // "Couldn't Complete Change" on the user's save.
-                    let stopperAlarm = alarm
-                    Task { @MainActor in
-                        await SilentStopper.arm(target: stopperAlarm.id,
-                                                hour: stopperAlarm.hour,
-                                                minute: stopperAlarm.minute,
-                                                weekdays: stopperAlarm.repeatDays,
-                                                cutoff: stopperAlarm.autoDismiss)
-                    }
                     #endif
                 } else { try cancel(alarm.id) }
                 alarms.removeAll { $0.id == alarm.id }; alarms.append(alarm)
@@ -100,12 +99,6 @@ public final class AlarmEngine: ObservableObject {
                 timer.endsAt = .now.addingTimeInterval(timer.duration); timer.pausedRemaining = nil
                 #if canImport(AlarmKit)
                 try await AlarmKitBridge.scheduleCountdown(id: timer.id, duration: timer.duration, label: timer.label, sound: timer.soundName)
-                let stopperTimer = timer
-                Task { @MainActor in
-                    await SilentStopper.arm(target: stopperTimer.id,
-                                            firesIn: stopperTimer.duration,
-                                            cutoff: stopperTimer.autoDismiss)
-                }
                 #endif
                 timers.removeAll { $0.id == timer.id }; timers.append(timer)
             case "cancelTimer":
@@ -186,8 +179,9 @@ public final class AlarmEngine: ObservableObject {
     private func purgeOrphanedSystemAlarms() {
         guard let current = try? AlarmManager.shared.alarms else { return }
         let owned = Set(alarms.filter(\.isEnabled).map(\.id)).union(timers.map(\.id))
-        let stoppers = Set(SilentStopper.map().keys.compactMap(UUID.init(uuidString:)))
-        for alarm in current where !owned.contains(alarm.id) && !stoppers.contains(alarm.id) {
+        // Silent stoppers are retired (they never woke the app; they only added
+        // a second alert). Anything not owned — including old stoppers — goes.
+        for alarm in current where !owned.contains(alarm.id) {
             try? AlarmManager.shared.cancel(id: alarm.id)
         }
         SilentStopper.purge(existing: Set((try? AlarmManager.shared.alarms)?.map(\.id) ?? []))

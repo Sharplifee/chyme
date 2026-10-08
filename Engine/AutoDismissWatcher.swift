@@ -10,6 +10,7 @@ final class AutoDismissWatcher: ObservableObject {
     @Published private(set) var events: [String] = UserDefaults.standard.stringArray(forKey: "autoStop.events") ?? []
     private var deadlines: [String: Date] = UserDefaults.standard.dictionary(forKey: "autoStop.deadlines") as? [String: Date] ?? [:]
     private var observation: Task<Void, Never>?
+    private var poller: Task<Void, Never>?
     private var stoppers: [UUID: Task<Void, Never>] = [:]
     private var runtime: [UUID: UIBackgroundTaskIdentifier] = [:]
     private var policyLookup: (@Sendable (UUID) -> AutoDismiss?)?
@@ -21,6 +22,15 @@ final class AutoDismissWatcher: ObservableObject {
         refresh()
         observation = Task {
             for await alarms in AlarmManager.shared.alarmUpdates { handle(alarms) }
+        }
+        // Belt and braces: while the keep-alive holds the process up, poll the
+        // system every half second so a ringing alert is caught even if the
+        // update stream is late in the background.
+        poller = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                if KeepAlive.shared.running || !deadlines.isEmpty { refresh() }
+            }
         }
     }
 
@@ -104,7 +114,7 @@ final class AutoDismissWatcher: ObservableObject {
         }
     }
     private func persist() { UserDefaults.standard.set(deadlines, forKey: "autoStop.deadlines") }
-    private func record(_ message: String) {
+    func record(_ message: String) {
         events.append("\(Date().ISO8601Format())  \(message)")
         if events.count > 100 { events.removeFirst(events.count - 100) }
         UserDefaults.standard.set(events, forKey: "autoStop.events")

@@ -18,6 +18,12 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate {
         }
     }
 
+    /// watchOS relaunched us for a scheduled Smart Alarm session (a watch timer
+    /// reached zero while Chymee wasn't running). Must set the delegate now.
+    func handle(_ extendedRuntimeSession: WKExtendedRuntimeSession) {
+        WatchTimerEngine.shared.adopt(extendedRuntimeSession)
+    }
+
     func handle(_ backgroundTasks: Set<WKRefreshBackgroundTask>) {
         for task in backgroundTasks {
             if let transfer = task as? WKWatchConnectivityRefreshBackgroundTask {

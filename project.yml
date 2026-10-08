@@ -35,6 +35,7 @@ targets:
           - CFBundleURLSchemes: [chymee]
         NSAlarmKitUsageDescription: "Chymee schedules alarms and timers that can alert on your Lock Screen and paired Apple Watch."
         NSSupportsLiveActivities: true
+        UIBackgroundModes: [audio]
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationPortraitUpsideDown
@@ -93,6 +94,7 @@ targets:
           - CFBundleURLSchemes: [chymee]
         WKCompanionAppBundleIdentifier: com.connor.chyme
         WKRunsIndependentlyOfCompanionApp: true
+        WKBackgroundModes: [alarm]
     dependencies:
       - target: ChymeWatchWidgets
         embed: true

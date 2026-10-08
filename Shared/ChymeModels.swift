@@ -4,6 +4,8 @@ import Foundation
 public struct AutoDismiss: Codable, Hashable, Sendable {
     public var seconds: Int
 
+    public static let threeSeconds = AutoDismiss(seconds: 3)
+    public static let fiveSeconds = AutoDismiss(seconds: 5)
     public static let tenSeconds = AutoDismiss(seconds: 10)
     public static let twentySeconds = AutoDismiss(seconds: 20)
     public static let thirtySeconds = AutoDismiss(seconds: 30)
@@ -27,7 +29,7 @@ public struct AutoDismiss: Codable, Hashable, Sendable {
     }
 
     public static let presets: [AutoDismiss] = [
-        .tenSeconds, .twentySeconds, .thirtySeconds,
+        .threeSeconds, .fiveSeconds, .tenSeconds, .twentySeconds, .thirtySeconds,
         .oneMinute, .twoMinutes, .fiveMinutes, .tenMinutes, .never
     ]
 }

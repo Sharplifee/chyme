@@ -14,7 +14,8 @@ The existing GitHub workflow generates the project, archives and signs the iOS a
 | Countdown recovery | Read and observe system Live Activity state after background controls | Verify pause/resume while Chymee is suspended |
 | Watch complications | Timer duration recommendations and Timer, Alarms, Stopwatch launchers in circular, corner, inline and rectangular families | Launchers do not display live synchronized alarm/timer state |
 | Stopwatch | Persisted timestamps, elapsed time, laps and optional phone-scheduled alert | Stopwatch state is independent per device; stopping remains local if alert cancellation cannot reach iPhone |
-| Timed automatic stopping | Persisted observed deadlines, bounded background execution, three stop attempts and local diagnostics | Not guaranteed while iOS suspends or terminates Chymee; no unrestricted background execution is claimed |
+| Timed automatic stopping (iPhone) | Silent mix-with-others background audio keeps Chymee running while anything with a cutoff is armed; watcher polls every 0.5 s and calls AlarmManager.stop at fire + cutoff. Silent-stopper alarms retired. | If iOS kills the app anyway the alarm rings until stopped (safe failure). Verify locked, suspended, Silent Mode. |
+| Timed automatic stopping (Watch) | Watch-started timers run on the watch via a Smart Alarm WKExtendedRuntimeSession scheduled for the fire time; haptic repeats every 1.5 s and the session is ended at the cutoff. One per app — a second concurrent watch timer falls back to the iPhone path. | Verify wrist-down, app closed, 3 s and 5 s cutoffs. |
 
 ## Physical-device acceptance pass
 
