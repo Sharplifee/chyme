@@ -15,32 +15,40 @@ import UIKit
 final class KeepAlive {
     static let shared = KeepAlive()
 
-    private let engine = AVAudioEngine()
-    private let player = AVAudioPlayerNode()
+    private var engine = AVAudioEngine()
+    private var player = AVAudioPlayerNode()
     private var configured = false
+    private var observing = false
     private(set) var running = false
+    /// True only while something with a cutoff is armed. Interruptions and
+    /// media resets must never revive the keep-alive once nothing needs it.
+    private var wanted = false
     private var bridge: UIBackgroundTaskIdentifier = .invalid
     private var observers: [NSObjectProtocol] = []
+    private var retry: Task<Void, Never>?
+    private var loggedFailure = false
 
     func update(needed: Bool) {
+        wanted = needed
         needed ? start() : stop()
     }
 
     private func start() {
-        guard !running else { return }
+        guard wanted, !running else { return }
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             try session.setActive(true)
+            if !observing { observe(); observing = true }
             if !configured {
                 engine.attach(player)
                 let format = engine.outputNode.inputFormat(forBus: 0)
                 engine.connect(player, to: engine.mainMixerNode, format: format)
                 engine.mainMixerNode.outputVolume = 0
-                observe()
                 configured = true
             }
             let format = engine.outputNode.inputFormat(forBus: 0)
+            player.stop()   // drop any buffer queued by a failed attempt; retries must not pile up
             if let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(format.sampleRate)) {
                 buffer.frameLength = buffer.frameCapacity          // zero-filled = silence
                 player.scheduleBuffer(buffer, at: nil, options: .loops)
@@ -48,13 +56,20 @@ final class KeepAlive {
             try engine.start()
             player.play()
             running = true
+            loggedFailure = false
             AutoDismissWatcher.shared.record("Keep-alive on (silent background audio)")
         } catch {
-            AutoDismissWatcher.shared.record("Keep-alive failed to start: \(error.localizedDescription)")
+            // Logged once per outage; retries happen every half second.
+            if !loggedFailure {
+                AutoDismissWatcher.shared.record("Keep-alive failed to start: \(error.localizedDescription)")
+                loggedFailure = true
+            }
         }
     }
 
     private func stop() {
+        retry?.cancel(); retry = nil
+        endBridge()
         guard running else { return }
         player.stop(); engine.stop()
         try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
@@ -72,33 +87,55 @@ final class KeepAlive {
             Task { @MainActor in KeepAlive.shared.interrupted(began: type == .began) }
         })
         observers.append(nc.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { _ in
-            Task { @MainActor in KeepAlive.shared.restart() }
+            Task { @MainActor in KeepAlive.shared.rebuild() }
         })
     }
 
     private func interrupted(began: Bool) {
+        guard wanted else { return }
         if began {
+            running = false
             if bridge == .invalid {
                 bridge = UIApplication.shared.beginBackgroundTask(withName: "Chymee auto-stop bridge") {
                     Task { @MainActor in KeepAlive.shared.endBridge() }
                 }
             }
-            AutoDismissWatcher.shared.record("Audio interrupted — bridging with background time")
-            // Try to come straight back; mixWithOthers usually allows it.
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(300))
-                KeepAlive.shared.restart()
+            AutoDismissWatcher.shared.record("Audio interrupted — bridging with background time and retrying")
+            // The ringing alert itself is usually the interruption. Keep trying
+            // to take the silent session back for as long as the bridge lasts,
+            // not just once, so long cutoffs still get their stop.
+            retry?.cancel()
+            retry = Task { @MainActor in
+                for _ in 0..<120 {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    guard !Task.isCancelled else { return }
+                    KeepAlive.shared.restart()
+                    if KeepAlive.shared.running { return }
+                }
             }
         } else {
+            retry?.cancel(); retry = nil
             restart()
         }
     }
 
     private func restart() {
-        guard running || configured else { return }
+        guard wanted else { return }
         running = false
         start()
-        if running { endBridge() }
+        if running {
+            retry?.cancel(); retry = nil
+            endBridge()
+        }
+    }
+
+    /// After a media-services reset the old engine is dead; build a new one.
+    private func rebuild() {
+        engine = AVAudioEngine()
+        player = AVAudioPlayerNode()
+        configured = false
+        running = false
+        restart()
     }
 
     private func endBridge() {
