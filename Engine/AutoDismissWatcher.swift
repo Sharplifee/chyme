@@ -28,8 +28,13 @@ final class AutoDismissWatcher: ObservableObject {
         // update stream is late in the background.
         poller = Task {
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(500))
-                if KeepAlive.shared.running || !deadlines.isEmpty { refresh() }
+                // Tight loop only while an alert is ringing; otherwise a relaxed
+                // 2s cadence is plenty to catch the transition into .alerting
+                // (a 1s cutoff still lands within ~2.5s of ring start, and the
+                // alarmUpdates stream normally beats the poll anyway).
+                let active = !deadlines.isEmpty
+                try? await Task.sleep(for: .milliseconds(active ? 250 : 2000))
+                if KeepAlive.shared.running || active { refresh() }
             }
         }
     }
@@ -57,8 +62,16 @@ final class AutoDismissWatcher: ObservableObject {
             if let saved = deadlines[id.uuidString] {
                 deadline = saved
             } else {
+                // Anchor on when the alert actually began, not when we first saw it.
+                // Timers know their fire time; alarms fire at a wall-clock minute, so
+                // round back to the start of the current minute if we're mid-minute.
                 let timerEnd = ChymeStore().loadTimers().first { $0.id == id }?.endsAt
-                let start = timerEnd.map { min($0, Date()) } ?? Date()
+                let now = Date()
+                let start: Date
+                if let timerEnd { start = min(timerEnd, now) }
+                else if ChymeStore().loadAlarms().contains(where: { $0.id == id }) {
+                    start = Calendar.current.date(bySetting: .second, value: 0, of: now) ?? now
+                } else { start = now }
                 deadline = start.addingTimeInterval(Double(policy.seconds))
                 deadlines[id.uuidString] = deadline
                 persist()
@@ -77,6 +90,7 @@ final class AutoDismissWatcher: ObservableObject {
         do {
             // Background tasks are bounded; do not consume a task for a long idle wait.
             if delay > 20 { try await Task.sleep(for: .seconds(delay - 20)) }
+            // Short cutoffs (1-5s): skip straight to the stop loop below.
             guard !Task.isCancelled else { return }
             runtime[id] = UIApplication.shared.beginBackgroundTask(withName: "Finish alarm stop") { @Sendable [weak self] in
                 Task { @MainActor in
@@ -85,8 +99,9 @@ final class AutoDismissWatcher: ObservableObject {
                 }
             }
             if runtime[id] == .invalid { record("Background runtime unavailable: \(id)") }
-            try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
-            for attempt in 1...3 {
+            let remaining = deadline.timeIntervalSinceNow
+            if remaining > 0 { try await Task.sleep(for: .milliseconds(Int(remaining * 1000))) }
+            for attempt in 1...5 {
                 try Task.checkCancellation()
                 do {
                     guard try AlarmManager.shared.alarms.contains(where: { $0.id == id && $0.state == .alerting }) else {
@@ -100,7 +115,7 @@ final class AutoDismissWatcher: ObservableObject {
                     return
                 } catch {
                     record("Stop attempt \(attempt) failed for \(id): \(error.localizedDescription)")
-                    if attempt < 3 { try await Task.sleep(for: .seconds(1)) }
+                    if attempt < 5 { try await Task.sleep(for: .milliseconds(400)) }
                 }
             }
         } catch is CancellationError {

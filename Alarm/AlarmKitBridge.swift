@@ -102,9 +102,14 @@ enum AlarmKitBridge {
     static func scheduleCountdown(id: UUID,
                                   duration: TimeInterval,
                                   label: String,
-                                  sound: String) async throws {
+                                  sound: String,
+                                  cutoffSeconds: Int = 0) async throws {
+        // postAlert is the "repeat/snooze" countdown. If the user asked us to stop
+        // ringing after N seconds, a 5-minute snooze would resurrect the alert
+        // after we silenced it. Cap it at the cutoff (min 1s) when a cutoff exists.
+        let post: TimeInterval = cutoffSeconds > 0 ? TimeInterval(max(1, cutoffSeconds)) : 5 * 60
         let config = AlarmManager.AlarmConfiguration(
-            countdownDuration: Alarm.CountdownDuration(preAlert: duration, postAlert: 5 * 60),
+            countdownDuration: Alarm.CountdownDuration(preAlert: duration, postAlert: post),
             schedule: nil,
             attributes: attributes(id: id, title: label),
             stopIntent: ChymeStopIntent(alarmID: id),
@@ -121,7 +126,8 @@ enum AlarmKitBridge {
                               weekdays: Set<Int>,
                               label: String,
                               sound: String,
-                              allowSnooze: Bool) async throws {
+                              allowSnooze: Bool,
+                              cutoffSeconds: Int = 0) async throws {
         let recurrence: Alarm.Schedule.Relative.Recurrence = weekdays.isEmpty
             ? .never
             : .weekly(weekdays.compactMap(Locale.Weekday.from(index:)))
@@ -135,7 +141,8 @@ enum AlarmKitBridge {
 
         let config = AlarmManager.AlarmConfiguration(
             countdownDuration: allowSnooze
-                ? Alarm.CountdownDuration(preAlert: nil, postAlert: 9 * 60)
+                ? Alarm.CountdownDuration(preAlert: nil,
+                                          postAlert: cutoffSeconds > 0 ? TimeInterval(max(1, cutoffSeconds)) : 9 * 60)
                 : nil,
             schedule: schedule,
             attributes: attributes(id: id, title: label, snooze: allowSnooze),

@@ -30,8 +30,12 @@ public final class AlarmEngine: ObservableObject {
         #if canImport(AlarmKit)
         AutoDismissWatcher.shared.start { id in
             let store = ChymeStore()
+            // Any alert we own uses its own cutoff; anything else that is ours
+            // (e.g. a stopwatch alert whose record was reset) falls back to the
+            // device default so nothing of ours can ever ring unbounded.
             return store.loadAlarms().first { $0.id == id }?.autoDismiss
                 ?? store.loadTimers().first { $0.id == id }?.autoDismiss
+                ?? store.defaultAutoDismiss
         }
         purgeOrphanedSystemAlarms()
         for activity in Activity<AlarmAttributes<ChymeMetadata>>.activities { observe(activity) }
@@ -81,7 +85,8 @@ public final class AlarmEngine: ObservableObject {
                     try await authorize()
                     #if canImport(AlarmKit)
                     try await AlarmKitBridge.scheduleFixed(id: alarm.id, hour: alarm.hour, minute: alarm.minute,
-                        weekdays: alarm.repeatDays, label: alarm.label, sound: alarm.soundName, allowSnooze: alarm.snoozeEnabled)
+                        weekdays: alarm.repeatDays, label: alarm.label, sound: alarm.soundName, allowSnooze: alarm.snoozeEnabled,
+                        cutoffSeconds: alarm.autoDismiss.seconds)
                     // Detached: a stopper failure must never surface as
                     // "Couldn't Complete Change" on the user's save.
                     #endif
@@ -98,7 +103,8 @@ public final class AlarmEngine: ObservableObject {
                 timer.soundName = ChymeSound.resolved(timer.soundName)
                 timer.endsAt = .now.addingTimeInterval(timer.duration); timer.pausedRemaining = nil
                 #if canImport(AlarmKit)
-                try await AlarmKitBridge.scheduleCountdown(id: timer.id, duration: timer.duration, label: timer.label, sound: timer.soundName)
+                try await AlarmKitBridge.scheduleCountdown(id: timer.id, duration: timer.duration, label: timer.label, sound: timer.soundName,
+                                                           cutoffSeconds: timer.autoDismiss.seconds)
                 #endif
                 timers.removeAll { $0.id == timer.id }; timers.append(timer)
             case "cancelTimer":
@@ -196,6 +202,8 @@ public final class AlarmEngine: ObservableObject {
         let ids = Set(current.map(\.id))
         SilentStopper.purge(existing: ids)
         timers.removeAll { !ids.contains($0.id) }
+        // A one-shot alarm disappears from AlarmKit once it has rung (or been
+        // auto-stopped); mirror that in the UI so the toggle doesn't lie.
         for index in alarms.indices where alarms[index].isEnabled && !ids.contains(alarms[index].id) {
             alarms[index].isEnabled = false
         }
