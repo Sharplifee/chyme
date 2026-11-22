@@ -45,6 +45,10 @@ public struct ChymeAlarm: Codable, Identifiable, Hashable, Sendable {
     public var soundName: String
     public var snoozeEnabled: Bool
     public var autoDismiss: AutoDismiss
+    /// nil/false = lives only on the device that made it. true = mirrored on
+    /// iPhone and Apple Watch; changing or cancelling it on one does the same on the other.
+    public var linked: Bool?
+    public var isLinked: Bool { linked == true }
 
     public init(id: UUID = UUID(),
                 label: String = "Alarm",
@@ -53,7 +57,9 @@ public struct ChymeAlarm: Codable, Identifiable, Hashable, Sendable {
                 isEnabled: Bool = true,
                 soundName: String = "System",
                 snoozeEnabled: Bool = true,
-                autoDismiss: AutoDismiss = .fiveMinutes) {
+                autoDismiss: AutoDismiss = .fiveMinutes,
+                linked: Bool? = nil) {
+        self.linked = linked
         self.id = id
         self.label = label
         self.minuteOfDay = minuteOfDay
@@ -66,6 +72,19 @@ public struct ChymeAlarm: Codable, Identifiable, Hashable, Sendable {
 
     public var hour: Int { minuteOfDay / 60 }
     public var minute: Int { minuteOfDay % 60 }
+
+    /// The next moment this alarm rings strictly after `date`, in local time.
+    public func nextFire(after date: Date, calendar: Calendar = .current) -> Date? {
+        var parts = DateComponents()
+        parts.hour = hour; parts.minute = minute; parts.second = 0
+        if repeatDays.isEmpty {
+            return calendar.nextDate(after: date, matching: parts, matchingPolicy: .nextTime)
+        }
+        return repeatDays.compactMap { day -> Date? in
+            var p = parts; p.weekday = day
+            return calendar.nextDate(after: date, matching: p, matchingPolicy: .nextTime)
+        }.min()
+    }
 }
 
 public struct ChymeTimer: Codable, Identifiable, Hashable, Sendable {
@@ -76,12 +95,17 @@ public struct ChymeTimer: Codable, Identifiable, Hashable, Sendable {
     public var soundName: String
     public var endsAt: Date?
     public var pausedRemaining: TimeInterval?
+    /// See `ChymeAlarm.linked`.
+    public var linked: Bool?
+    public var isLinked: Bool { linked == true }
 
     public init(id: UUID = UUID(),
                 label: String = "Timer",
                 duration: TimeInterval,
                 autoDismiss: AutoDismiss = .fiveMinutes,
-                soundName: String = "System") {
+                soundName: String = "System",
+                linked: Bool? = nil) {
+        self.linked = linked
         self.id = id
         self.label = label
         self.duration = duration
@@ -144,6 +168,11 @@ public enum ClockText {
             : String(format: "%02d:%02d", total / 60, total % 60)
         return hundredths ? base + String(format: ".%02d", Int(value * 100) % 100) : base
     }
+    /// 12-hour label for an hour of the day: "12 AM", "7 AM", "3 PM".
+    public static func hourLabel(_ hour: Int) -> String {
+        let h = hour % 12 == 0 ? 12 : hour % 12
+        return "\(h) \(hour < 12 ? "AM" : "PM")"
+    }
     public static func time(_ minutes: Int) -> String {
         let date = Calendar.current.startOfDay(for: .now).addingTimeInterval(Double(minutes * 60))
         return date.formatted(date: .omitted, time: .shortened)
@@ -169,6 +198,20 @@ public struct ClockCommand: Codable, Sendable {
     public var id: UUID? = nil
     public var alarm: ChymeAlarm? = nil
     public var timer: ChymeTimer? = nil
+    /// true when this command arrived from the other device for a linked item,
+    /// so the receiver applies it without echoing it back.
+    public var remote: Bool? = nil
+}
+
+/// The other device's name, for "Also on …" wording.
+public enum DeviceText {
+    #if os(watchOS)
+    public static let this = "This Watch"
+    public static let other = "iPhone"
+    #else
+    public static let this = "This iPhone"
+    public static let other = "Apple Watch"
+    #endif
 }
 
 public struct ClockReply: Codable, Sendable {

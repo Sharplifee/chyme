@@ -10,6 +10,8 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate {
 
     func applicationDidFinishLaunching() {
         _ = ChymeConnectivity.shared
+        ChymeConnectivity.shared.onLinked = { _ = await WatchEngine.shared.perform($0) }
+        WatchEngine.shared.start()
         activationObservation = WCSession.default.observe(\.activationState) { @Sendable [weak self] _, _ in
             Task { @MainActor in self?.finishTransfers() }
         }
@@ -18,10 +20,14 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate {
         }
     }
 
-    /// watchOS relaunched us for a scheduled Smart Alarm session (a watch timer
-    /// reached zero while Chymee wasn't running). Must set the delegate now.
+    func applicationDidBecomeActive() {
+        WatchEngine.shared.activated()
+    }
+
+    /// watchOS relaunched us for the scheduled Smart Alarm session (an alarm or
+    /// timer came due while Chymee wasn't running). Must set the delegate now.
     func handle(_ extendedRuntimeSession: WKExtendedRuntimeSession) {
-        WatchTimerEngine.shared.adopt(extendedRuntimeSession)
+        WatchEngine.shared.adopt(extendedRuntimeSession)
     }
 
     func handle(_ backgroundTasks: Set<WKRefreshBackgroundTask>) {

@@ -3,6 +3,9 @@ import SwiftUI
 struct SettingsView: View {
     @State private var duration = Int(ChymeStore().defaultComplicationDuration)
     @State private var dismiss = ChymeStore().defaultAutoDismiss
+    #if os(watchOS)
+    @State private var complicationCheck = "Checking…"
+    #endif
     var body: some View {
         Form {
             Section("Defaults on This Device") {
@@ -17,15 +20,21 @@ struct SettingsView: View {
             }
             #endif
             Section("Watch Face") {
-                Label("Timer · Alarms · Stopwatch", systemImage: "applewatch")
-                Text("Touch and hold your watch face, tap Edit, then select a complication slot and choose Chymee. Edit the Timer complication to choose its duration. Available shapes depend on your watch face.")
+                Label("Chymee · Timer · Alarms · Stopwatch", systemImage: "applewatch")
+                Text("Touch and hold your watch face, tap Edit, then select any complication slot and choose Chymee. Each one is live: a running timer counts down, a running stopwatch counts up, and Alarms shows the next alarm on the watch. The Chymee complication shows whichever is active. They fit every slot shape: circle, corner, one line, and rectangle.")
                     .font(.footnote).foregroundStyle(.secondary)
+                #if os(watchOS)
+                LabeledContent("Live data", value: complicationCheck)
+                #endif
             }
-            Section("Connected Alarms") {
-                Text("iPhone schedules your alarms and timers. Keep it nearby to create or change them from Watch. Scheduled alerts are managed by iOS and can appear on the paired Watch even while Chymee is in the background. The stopwatch works independently on each device.")
+            Section("iPhone and Apple Watch") {
+                Text("Each device runs its own alarms, timers and stopwatch. Neither needs the other, and starting or cancelling something on one leaves the other alone. Turn on Also on \(DeviceText.other) for an alarm or timer you want on both: that one item is then kept in step, and cancelling it on either device cancels it on both.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }.navigationTitle("Settings")
+        #if os(watchOS)
+        .onAppear { complicationCheck = SharedState.selfTest() }
+        #endif
         .onChange(of: duration) { _, value in ChymeStore().defaultComplicationDuration = Double(max(1, value)) }
         .onChange(of: dismiss) { _, value in ChymeStore().defaultAutoDismiss = value }
     }

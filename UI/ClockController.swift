@@ -3,7 +3,8 @@ import Combine
 
 @MainActor
 final class ClockController: ObservableObject {
-    @Published var snapshot = ClockSnapshot(alarms: ChymeStore().loadAlarms(), timers: ChymeStore().loadTimers())
+    /// This device's own alarms and timers. Nothing here is read from the other device.
+    @Published var snapshot = ClockSnapshot(alarms: [], timers: [])
     @Published var busy = false
     @Published var error: String?
     @Published var lastSync: Date?
@@ -14,15 +15,17 @@ final class ClockController: ObservableObject {
         let link = ChymeConnectivity.shared
         #if os(watchOS)
         tab = "home"
-        lastSync = UserDefaults.standard.object(forKey: "clock.snapshotDate") as? Date
-        link.receiveSnapshot = { [weak self] in self?.accept($0) }
+        let engine = WatchEngine.shared
+        engine.onChange = { [weak self] in self?.accept($0) }
+        link.onLinked = { _ = await engine.perform($0) }
+        engine.start()
         #else
         let engine = AlarmEngine.shared
         engine.onChange = { [weak self] in self?.accept($0) }
-        link.execute = { await engine.perform($0) }
-        link.onActivation = { engine.refresh() }
+        link.onLinked = { _ = await engine.perform($0) }
         engine.start()
         #endif
+        snapshot = engine.snapshot
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
         if let index = arguments.firstIndex(of: "--qa-screen"), arguments.indices.contains(index + 1),
@@ -32,16 +35,14 @@ final class ClockController: ObservableObject {
         #endif
     }
     private func accept(_ value: ClockSnapshot) {
-        guard lastSync == nil || value.date >= lastSync! else { return }
         snapshot = value; lastSync = value.date
-        ChymeStore().save(alarms: value.alarms); ChymeStore().save(timers: value.timers)
     }
     @discardableResult func send(_ command: ClockCommand) async -> Bool {
         guard !busy else { return false }
         busy = true
         defer { busy = false }
         #if os(watchOS)
-        let reply = await ChymeConnectivity.shared.request(command)
+        let reply = await WatchEngine.shared.perform(command)
         #else
         let reply = await AlarmEngine.shared.perform(command)
         #endif
@@ -50,9 +51,6 @@ final class ClockController: ObservableObject {
         return true
     }
     func refresh(quiet: Bool = false) async {
-        #if os(watchOS)
-        if quiet && !ChymeConnectivity.shared.reachable { return }
-        #endif
         _ = await send(ClockCommand(action: "sync"))
     }
     func open(_ url: URL) {

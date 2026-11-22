@@ -46,7 +46,7 @@ struct StopwatchView: View {
                     }
                 }.disabled(clock.busy)
                 if !state.running && state.alertID != nil {
-                    Text("Stopwatch paused. Its iPhone alert may still be scheduled. Reconnect and tap Reset to clear it.")
+                    Text("Stopwatch paused. Its alert is still scheduled. Tap Reset to clear it.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 if state.preset > 0 { Text("Starting from \(ClockText.duration(state.preset))").font(.footnote).foregroundStyle(.secondary) }
@@ -100,6 +100,9 @@ struct StopwatchView: View {
     }
     private func save() {
         if let data = try? JSONEncoder().encode(state) { UserDefaults.standard.set(data, forKey: "stopwatch.v2") }
+        #if os(watchOS)
+        WatchEngine.shared.refreshComplications()   // the watch face shows the running stopwatch
+        #endif
     }
     private func toggle() async {
         if state.running {

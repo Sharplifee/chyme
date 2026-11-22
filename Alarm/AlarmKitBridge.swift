@@ -4,6 +4,15 @@ import AppIntents
 #if canImport(AlarmKit)
 import AlarmKit
 
+/// Posted when a Lock Screen / Dynamic Island button acts on an alert, so the
+/// app can mirror the action to the watch for items that live on both devices.
+enum ChymeIntentSignal {
+    static let name = Notification.Name("chymee.intent")
+    static func post(_ action: String, _ alarmID: String) {
+        NotificationCenter.default.post(name: name, object: nil, userInfo: ["action": action, "id": alarmID])
+    }
+}
+
 struct ChymeMetadata: AlarmMetadata {
     var id: UUID?
     init(id: UUID? = nil) { self.id = id }
@@ -20,6 +29,7 @@ struct ChymeStopIntent: LiveActivityIntent {
     func perform() async throws -> some IntentResult {
         if let id = UUID(uuidString: alarmID) {
             try AlarmManager.shared.stop(id: id)
+            ChymeIntentSignal.post("stop", alarmID)
         }
         return .result()
     }
@@ -47,7 +57,7 @@ struct ChymePauseIntent: LiveActivityIntent {
     init() {}
     init(alarmID: UUID) { self.alarmID = alarmID.uuidString }
     func perform() async throws -> some IntentResult {
-        if let id = UUID(uuidString: alarmID) { try AlarmManager.shared.pause(id: id) }
+        if let id = UUID(uuidString: alarmID) { try AlarmManager.shared.pause(id: id); ChymeIntentSignal.post("pause", alarmID) }
         return .result()
     }
 }
@@ -58,7 +68,7 @@ struct ChymeResumeIntent: LiveActivityIntent {
     init() {}
     init(alarmID: UUID) { self.alarmID = alarmID.uuidString }
     func perform() async throws -> some IntentResult {
-        if let id = UUID(uuidString: alarmID) { try AlarmManager.shared.resume(id: id) }
+        if let id = UUID(uuidString: alarmID) { try AlarmManager.shared.resume(id: id); ChymeIntentSignal.post("resume", alarmID) }
         return .result()
     }
 }
@@ -69,7 +79,7 @@ struct ChymeCancelIntent: LiveActivityIntent {
     init() {}
     init(alarmID: UUID) { self.alarmID = alarmID.uuidString }
     func perform() async throws -> some IntentResult {
-        if let id = UUID(uuidString: alarmID) { try AlarmManager.shared.cancel(id: id) }
+        if let id = UUID(uuidString: alarmID) { try AlarmManager.shared.cancel(id: id); ChymeIntentSignal.post("cancel", alarmID) }
         return .result()
     }
 }

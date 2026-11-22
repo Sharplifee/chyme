@@ -92,7 +92,11 @@ struct AutoDismissPickerView: View {
                 #endif
             }
             Section {
-                Text("Automatic stopping requires Chymee to remain active on iPhone. If iOS suspends the app, the alert may continue until stopped.")
+                #if os(watchOS)
+                Text("The watch ends the alert itself at this time. Until Stopped rings for up to 30 minutes, the longest watchOS allows.")
+                #else
+                Text("Chymee stays awake in the background to end the alert at this time. If you force-quit Chymee or restart the iPhone before it rings, the alert continues until you stop it.")
+                #endif
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }

@@ -6,34 +6,31 @@ struct TimersView: View {
     @State private var label = ""
     @State private var autoDismiss = ChymeStore().defaultAutoDismiss
     @State private var sound = ChymeSound.default.name
+    @State private var linked = false
     var body: some View {
         List {
-            #if os(watchOS)
-            WatchLocalTimerSection()
-            #endif
             if !clock.snapshot.timers.isEmpty {
                 Section("Active Timers") {
                     ForEach(clock.snapshot.timers) { timer in TimerCard(timer: timer) }
                 }
             }
-            Section("New Timer") {
+            Section {
                 DurationPicker(seconds: $seconds)
                 TextField("Label", text: $label)
                 NavigationLink { SoundPickerView(selection: $sound) } label: { LabeledContent("Sound", value: sound) }
                 NavigationLink { AutoDismissPickerView(selection: $autoDismiss) } label: { LabeledContent("Stop Ringing After", value: autoDismiss.label) }
+                Toggle("Also on \(DeviceText.other)", isOn: $linked).tint(.orange)
                 ClockAction(title: clock.busy ? "Starting…" : "Start Timer", symbol: "play.fill", color: .green) {
                     let name = label.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let timer = ChymeTimer(label: name.isEmpty ? "Timer" : name, duration: Double(seconds), autoDismiss: autoDismiss, soundName: sound)
-                    #if os(watchOS)
-                    // Runs on the watch itself (auto-stops on its own); only a
-                    // second simultaneous timer goes through the iPhone.
-                    if WatchTimerEngine.shared.start(timer) != nil {
-                        Task { await clock.send(ClockCommand(action: "startTimer", timer: timer)) }
-                    }
-                    #else
+                    // Runs on this device by itself. "Also on …" starts a linked copy on the other one.
+                    let timer = ChymeTimer(label: name.isEmpty ? "Timer" : name, duration: Double(seconds), autoDismiss: autoDismiss, soundName: sound, linked: linked ? true : nil)
                     Task { await clock.send(ClockCommand(action: "startTimer", timer: timer)) }
-                    #endif
                 }.disabled(seconds == 0 || clock.busy).listRowBackground(Color.clear)
+            } header: {
+                Text("New Timer")
+            } footer: {
+                Text(linked ? "Starts on both devices. Pausing or cancelling on one does the same on the other."
+                            : "Runs on \(DeviceText.this.lowercased()) only. The \(DeviceText.other) is not involved.")
             }
             Section("Quick Set") {
                 #if os(watchOS)
@@ -67,6 +64,7 @@ struct TimerCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text(timer.label).font(.headline)
+                    if timer.isLinked { Image(systemName: "link").font(.caption).foregroundStyle(.secondary).accessibilityLabel("On both devices") }
                     Spacer()
                     if timer.isPaused { Text("Paused").font(.caption).foregroundStyle(.secondary) }
                 }
@@ -75,6 +73,8 @@ struct TimerCard: View {
                     .monospacedDigit().foregroundStyle(.orange)
                     .contentTransition(.numericText()).minimumScaleFactor(0.6).lineLimit(1)
                 if remaining == 0 && timer.endsAt != nil { Text("Time’s up").font(.subheadline) }
+                Text(timer.autoDismiss.isEnabled ? "Stops ringing by itself after \(timer.autoDismiss.label)" : "Rings until stopped")
+                    .font(.caption2).foregroundStyle(.secondary)
                 HStack {
                     if remaining > 0 {
                         Button(timer.isPaused ? "Resume" : "Pause", systemImage: timer.isPaused ? "play.fill" : "pause.fill") {
@@ -90,28 +90,3 @@ struct TimerCard: View {
         }
     }
 }
-
-#if os(watchOS)
-/// The timer running on the watch itself: countdown, then a big Stop while it rings.
-struct WatchLocalTimerSection: View {
-    @ObservedObject private var engine = WatchTimerEngine.shared
-    var body: some View {
-        if let t = engine.timer {
-            Section(engine.ringing ? "Time’s up" : "On this watch") {
-                TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(t.label).font(.headline)
-                        Text(engine.ringing ? "Ringing" : ClockText.duration(t.remaining(at: ctx.date)))
-                            .font(.system(.title, design: .rounded, weight: .light))
-                            .monospacedDigit().foregroundStyle(.orange)
-                        Text(t.autoDismiss.isEnabled ? "Stops ringing by itself after \(t.autoDismiss.label)" : "Rings until stopped")
-                            .font(.caption2).foregroundStyle(.secondary)
-                        Button(engine.ringing ? "Stop" : "Cancel", systemImage: "xmark") { engine.cancel() }
-                            .buttonStyle(.bordered).tint(engine.ringing ? .orange : .secondary)
-                    }
-                }
-            }
-        }
-    }
-}
-#endif

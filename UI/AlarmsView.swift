@@ -26,7 +26,8 @@ struct AlarmsView: View {
                                 #endif
                                 .monospacedDigit().foregroundStyle(alarm.isEnabled ? .primary : .secondary)
                             Text(alarm.label).font(.subheadline).foregroundStyle(.primary)
-                            Text(ClockText.repeatLabel(alarm.repeatDays)).font(.caption).foregroundStyle(.secondary)
+                            Text(ClockText.repeatLabel(alarm.repeatDays) + " · stops after " + alarm.autoDismiss.label + (alarm.isLinked ? " · both devices" : ""))
+                                .font(.caption).foregroundStyle(.secondary)
                         }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                     }.buttonStyle(.plain).accessibilityLabel("Edit \(alarm.label), \(ClockText.time(alarm.minuteOfDay))")
                     Toggle("Enable \(alarm.label)", isOn: Binding(get: { alarm.isEnabled }, set: { value in
@@ -66,7 +67,7 @@ struct AlarmEditor: View {
             Section {
                 #if os(watchOS)
                 Picker("Hour", selection: Binding(get: { alarm.hour }, set: { alarm.minuteOfDay = $0 * 60 + alarm.minute })) {
-                    ForEach(0..<24, id: \.self) { Text(String(format: "%02d", $0)).tag($0) }
+                    ForEach(0..<24, id: \.self) { Text(ClockText.hourLabel($0)).tag($0) }
                 }
                 Picker("Minute", selection: Binding(get: { alarm.minute }, set: { alarm.minuteOfDay = alarm.hour * 60 + $0 })) {
                     ForEach(0..<60, id: \.self) { Text(String(format: "%02d", $0)).tag($0) }
@@ -87,6 +88,12 @@ struct AlarmEditor: View {
                 NavigationLink { AutoDismissPickerView(selection: $alarm.autoDismiss) } label: {
                     LabeledContent("Stop Ringing After", value: alarm.autoDismiss.label)
                 }
+            }
+            Section {
+                Toggle("Also on \(DeviceText.other)", isOn: Binding(get: { alarm.isLinked }, set: { alarm.linked = $0 ? true : nil })).tint(.orange)
+            } footer: {
+                Text(alarm.isLinked ? "Kept the same on both devices. Editing, switching off or deleting it on one does the same on the other."
+                                    : "Lives on \(DeviceText.this.lowercased()) only. The \(DeviceText.other) is not involved.")
             }
         }
         .navigationTitle("Edit Alarm")

@@ -22,7 +22,7 @@ targets:
     type: application
     platform: iOS
     supportedDestinations: [iOS, macCatalyst]
-    sources: [App, UI, Shared, Engine, Connect, Alarm, Assets, Sounds]
+    sources: [App, UI, Shared, Engine, Connect, Alarm, Log, Assets, Sounds]
     info:
       path: Config/Chyme-Info.plist
       properties:
@@ -81,7 +81,7 @@ targets:
   ChymeWatch:
     type: application
     platform: watchOS
-    sources: [Watch, UI, Shared, Connect, WatchAssets, Sounds]
+    sources: [Watch, UI, Shared, Connect, Log, WatchAssets, Sounds]
     info:
       path: Config/ChymeWatch-Info.plist
       properties:
@@ -95,6 +95,11 @@ targets:
         WKCompanionAppBundleIdentifier: com.connor.chyme
         WKRunsIndependentlyOfCompanionApp: true
         WKBackgroundModes: [alarm]
+    entitlements:
+      path: Config/ChymeWatch.entitlements
+      properties:
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.connor.chyme.shared
     dependencies:
       - target: ChymeWatchWidgets
         embed: true
@@ -117,6 +122,11 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Config/ChymeWatchWidgets.entitlements
+      properties:
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.connor.chyme.shared
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.connor.chyme.watchkitapp.widgets
