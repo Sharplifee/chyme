@@ -68,6 +68,11 @@ struct RepeatPicker: View {
 }
 
 struct AutoDismissPickerView: View {
+    #if os(watchOS)
+    private static let stopNote = "The watch ends the alert itself at this time. Until Stopped rings for up to 30 minutes, the longest watchOS allows."
+    #else
+    private static let stopNote = "Chymee stays awake in the background to end the alert at this time. If you force-quit Chymee or restart the iPhone before it rings, the alert continues until you stop it."
+    #endif
     @Binding var selection: AutoDismiss
     @State private var customSeconds = 300
     private var enabled: Binding<Bool> {
@@ -92,11 +97,7 @@ struct AutoDismissPickerView: View {
                 #endif
             }
             Section {
-                #if os(watchOS)
-                Text("The watch ends the alert itself at this time. Until Stopped rings for up to 30 minutes, the longest watchOS allows.")
-                #else
-                Text("Chymee stays awake in the background to end the alert at this time. If you force-quit Chymee or restart the iPhone before it rings, the alert continues until you stop it.")
-                #endif
+                Text(Self.stopNote)
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
